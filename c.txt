@@ -1,0 +1,1548 @@
+		public static Loginfrm lfrm = new Loginfrm();
+        public static string serverip = "127.0.0.1";
+        private string mac = String.Empty;
+        private string pcname = String.Empty;
+        private string adminuser = "admin";
+        private string adminpass ="mastercafe";
+        private string imgurl = String.Empty;
+        private string imgclick = String.Empty;
+        private string imgstart = String.Empty;
+        public bool adminok=false;
+        private string[] bans = new string[0];
+        private int status = 1;
+        private int c = 0;
+        private Thread oThread_server;
+        private UdpClient oUdpClient;
+        private System.Timers.Timer oTimer_connection;
+        private bool locked = false;
+        private bool close = false;
+        private bool connected = false;
+        private bool lfrmopen = false;
+        private string tc = "";
+        private string ht = "";
+        private int accept = 0;
+        private string old = "";
+        private int usedmoney = 0;
+        private XmlDocument xdparam = new XmlDocument();
+        private int minute =0;
+        private RegistryKey regserver;
+        public static bool run = false;
+        private Hashtable oHashtable_packets_clients = new Hashtable();
+        private static int enable_hide_button = 0;
+
+        private void killnr()
+        {
+            Process[] ps = Process.GetProcesses();
+            for (int i = 0; i < ps.Length; i++)
+            {
+                if (ps[i].Responding == false)
+                {
+                    ps[i].Kill();
+                }
+            }
+        }
+
+        private void Getclick()
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(imgclick);
+            }
+            catch { ;}
+        }
+
+        private void Getstart()
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(imgstart);
+            }
+            catch { ;}
+        }
+
+        private void Getdata()
+        {
+            try
+            {
+                WebRequest req = WebRequest.Create("http://hureemedia.mn/banner/index.php");
+                WebResponse res = req.GetResponse();
+                Stream stream = res.GetResponseStream();
+                StreamReader streamr = new StreamReader(stream);
+                string data = streamr.ReadToEnd();
+                XmlDocument xd = new XmlDocument();
+                xd.LoadXml(data);
+                imgurl = xd.FirstChild.ChildNodes[0].InnerText;
+                imgclick = xd.FirstChild.ChildNodes[1].InnerText;
+                imgstart = xd.FirstChild.ChildNodes[2].InnerText;
+                streamr.Close();
+                stream.Close();
+                res.Close();
+                System.Diagnostics.Process.Start(imgstart);
+            }
+            catch
+            { ; }
+            finally
+            {
+                Thread oThread = new Thread(new ThreadStart(Getbanner));
+                oThread.Priority = ThreadPriority.Lowest;
+                oThread.Start();
+            }
+        }
+        private void Getbanner()
+        {
+            try
+            {
+                WebRequest req = WebRequest.Create(imgurl);
+                WebResponse response = req.GetResponse();
+                Stream stream = response.GetResponseStream();
+                pictureBox_banner.BackgroundImage = Image.FromStream(stream);
+                stream.Close();
+                response.Close();
+                if (progressBar.InvokeRequired)
+                {
+                    progressBar.Invoke(new MethodInvoker(delegate {
+                        progressBar.Hide();
+                    }));
+                }
+                else
+                {
+                    progressBar.Hide();
+                }
+            }
+            catch { ;}
+        }
+
+        private void StartCheck()
+        {
+            Thread.Sleep(30000);
+            while (true)
+            {
+                
+                Thread t = new Thread(new ThreadStart(Check));
+                t.IsBackground = true;
+                t.Start();
+                Thread.Sleep(500);
+            }
+        }
+
+        private void  Check()
+        {
+            if (run)
+            {
+                return;
+            }
+            run = true;
+            try
+            {
+                int c = 0;
+                Process[] ps = Process.GetProcessesByName("Guard");
+                for (int i = 0; i < ps.Length; i++)
+                {
+                    if (Application.StartupPath == ps[i].MainModule.FileName.Substring(0, ps[i].MainModule.FileName.LastIndexOf("\\")))
+                    {
+                        c++;
+                    }
+                }
+                if (c == 0)
+                {
+                    if (File.Exists(Application.StartupPath + "\\Guard.exe"))
+                    {
+                        if (File.Exists(Application.StartupPath + "\\WinLockDll.dll"))
+                        {
+                            if (File.Exists(Application.StartupPath + "\\Loader.exe"))
+                            {
+                                RegistryKey regserver = Registry.LocalMachine.OpenSubKey("SOFTWARE\\WINRAR\\", true);
+                                if (regserver == null)
+                                {
+                                    Registry.LocalMachine.CreateSubKey("SOFTWARE\\WINRAR\\");
+                                    regserver = Registry.LocalMachine.OpenSubKey("SOFTWARE\\WINRAR\\", true);
+                                }
+                                try
+                                {
+                                  if (c == 0)
+                                  {
+                                            System.Diagnostics.ProcessStartInfo _pi = new System.Diagnostics.ProcessStartInfo();
+                                            _pi.FileName = Application.StartupPath + "\\Guard.exe";
+                                            System.Diagnostics.Process.Start(_pi);
+                                  }
+                                    
+                                }
+                                catch
+                                { ; }
+                                regserver.Close();
+                            }
+                            else
+                            {
+
+                                System.Diagnostics.ProcessStartInfo _pi = new System.Diagnostics.ProcessStartInfo("shutdown", " -r -t 0 -f");
+                                _pi.WindowStyle = ProcessWindowStyle.Hidden;
+                                _pi.CreateNoWindow = true;
+                                _pi.UseShellExecute = false;
+                                Process.Start(_pi);
+                            }
+                        }
+                        else
+                        {
+                            System.Diagnostics.ProcessStartInfo _pi = new System.Diagnostics.ProcessStartInfo("shutdown", " -r -t 0 -f");
+                            _pi.WindowStyle = ProcessWindowStyle.Hidden;
+                            _pi.CreateNoWindow = true;
+                            _pi.UseShellExecute = false;
+                            Process.Start(_pi);
+                        }
+                    }
+                    else
+                    {
+                        System.Diagnostics.ProcessStartInfo _pi = new System.Diagnostics.ProcessStartInfo("shutdown", " -r -t 0 -f");
+                        _pi.WindowStyle = ProcessWindowStyle.Hidden;
+                        _pi.CreateNoWindow = true;
+                        _pi.UseShellExecute = false;
+                        Process.Start(_pi);
+                    }
+                }
+            }
+            catch
+            { ; }
+            run = false;
+        }
+        
+        private void oTimer_connection_Elapsed(object sender, EventArgs e)
+        {
+            oTimer_connection.Stop();
+            string msg="<mastercafe><cmd>syn</cmd></mastercafe>";
+            Send(serverip, Program.port_clienttoserver, msg);
+            c++;
+            if (c >4)
+            {
+                if (connected)
+                {
+                    connected = false;
+                    on_disconnect();
+                }
+            }
+            oTimer_connection.Start();
+        }
+        private void lfrm_button_timecode_Click(object sender, EventArgs e)
+        {
+            lfrm_timecodelogin();
+        }
+        private void lfrm_button_user_Click(object sender, EventArgs e)
+        {
+            lfrm_memberlogin();
+        }
+        private void lfrm_textBox_timecode_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter)
+            {
+                if (lfrm.textBox_timecode.Text.Length > 0)
+                {
+                    lfrm_timecodelogin();
+                }
+            }
+        }
+        private void lfrm_textBox_password_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter)
+            {
+                if (lfrm.textBox_password.Text.Length > 0 && lfrm.textBox_user.Text.Length > 0)
+                {
+                    lfrm_memberlogin();
+                }
+            }
+        }
+        private void lfrm_memberlogin()
+        {
+            if (lfrm.textBox_user.Text.ToLower() == "admin"&&lfrm.textBox_password.Text==adminpass)
+            {
+                status = 2;
+                lfrm.canclose = true;
+                if (lfrm.InvokeRequired)
+                {
+                    lfrm.Invoke(new MethodInvoker(delegate
+                    {
+                        lfrm.Close();
+                    }));
+                }
+                else
+                {
+                    lfrm.Close();
+                }
+                return;
+            }
+            if (connected)
+            {
+                if (accept == 0)
+                {
+                    lfrm.labelerr_member.Settext("Та түр хүлээнэ үү.");
+                }
+                if (accept == 1)
+                {
+                    lfrm.labelerr_member.Settext("Тохиргоо дутуу эсвэл буруу хийгдсэн байна.");
+                }
+                if (accept == 2)
+                {
+                    string msg = "<mastercafe><cmd>memberlogin</cmd>";
+                    msg += "<name>"+lfrm.textBox_user.Text+"</name>";
+                    msg += "<password>"+lfrm.textBox_password.Text+"</password>";
+                    msg += "</mastercafe>";
+                    Send(serverip, Program.port_clienttoserver, msg);
+                    lfrm.labelerr_member.Settext("Хүсэлт илгээгдэж байна.");
+                }
+                lfrm.textBox_password.Text = String.Empty;
+                lfrm.textBox_password.Focus();
+            }
+            else
+            {
+                lfrm.labelerr_member.Settext("Сервертэй холболт үүсээгүй байна.");
+            }
+        }
+        private void lfrm_timecodelogin()
+        {
+            if (connected)
+            {
+                if (accept == 0)
+                {
+                    lfrm.labelerr_timecode.Settext("Та түр хүлээнэ үү.");
+                }
+                if (accept == 1)
+                {
+                    lfrm.labelerr_timecode.Settext("Тохиргоо дутуу эсвэл буруу хийгдсэн байна.");
+                }
+                if (accept == 2)
+                {
+                    string msg = "<mastercafe><cmd>timecodelogin</cmd>";
+                    msg += "<name>" + lfrm.textBox_timecode.Text + "</name>";
+                    msg += "</mastercafe>";
+                    Send(serverip, Program.port_clienttoserver, msg);
+                    lfrm.labelerr_timecode.Settext("Хүсэлт илгээгдэж байна.");
+                }
+                lfrm.textBox_timecode.Text = String.Empty;
+                lfrm.textBox_timecode.Focus();
+            }
+            else
+            {
+                lfrm.labelerr_timecode.Settext("Сервертэй холболт үүсээгүй байна.");
+            }
+        }
+		
+		public Mainfrm()
+        {
+            try
+            {
+                UdpClient listener = new UdpClient(Program.port_servertoclient);
+                listener.Close();
+            }
+            catch
+            {
+                System.Environment.Exit(0);
+            }
+            minall();
+            try
+            {
+                Registry.CurrentUser.OpenSubKey("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run\\", true).SetValue("Client", Application.StartupPath + "\\Client.exe");
+            }
+            catch
+            {
+                ;
+            }
+            this.regserver = Registry.CurrentUser.OpenSubKey("SOFTWARE\\MC\\", true);
+
+            if (regserver == null)
+            {
+                Registry.CurrentUser.CreateSubKey("SOFTWARE\\MC\\");
+                this.regserver = Registry.CurrentUser.OpenSubKey("SOFTWARE\\MC\\", true);
+            }
+            try
+            {
+                adminpass = Program.Decompress(regserver.GetValue("password").ToString());
+            }
+            catch
+            {
+                ;
+            }
+            try
+            {
+                serverip = Program.Decompress(regserver.GetValue("serverip").ToString());
+                
+            }
+            catch
+            {
+                UdpClient cle = new UdpClient();
+                var requestData = Encoding.ASCII.GetBytes("SomeRequestData");
+                var serverEp = new IPEndPoint(IPAddress.Any,Program.port_broadcast);
+                cle.EnableBroadcast = true;
+                cle.Send(requestData,requestData.Length,new IPEndPoint(IPAddress.Broadcast,Program.port_broadcast));
+                var ServerResponseData = cle.Receive(ref serverEp);
+                var ServerResponse = Encoding.ASCII.GetString(ServerResponseData);
+                serverip = serverEp.Address.ToString();
+                regserver.SetValue("serverip", Program.Compress(serverip));
+                cle.Close();
+                //IP ip = new IP();
+                //ip.ShowDialog(this);
+                //if (ip.ok)
+                //{
+                //    serverip = ip.ipAddressTextBox.Text.Replace(" ", "");
+                //    regserver.SetValue("serverip", Program.EncryptString(serverip, "mastercafep"));
+                //}
+                //else
+                //{
+                //    System.Environment.Exit(0);
+                //}
+            }
+            try
+            {
+                regserver.DeleteValue("close");
+            }
+            catch { ;}
+
+            try
+            {
+                string l = regserver.GetValue("lock").ToString();
+                if (l.Length > 0)
+                {
+                    locked = true;
+                }
+                regserver.DeleteValue("lock");
+            }
+            catch { ;}
+            regserver.Close();
+            int c = 0;
+            Process[] ps = Process.GetProcessesByName("Guard");
+            for (int i = 0; i < ps.Length; i++)
+            {
+                if (Application.StartupPath == ps[i].MainModule.FileName.Substring(0, ps[i].MainModule.FileName.LastIndexOf("\\")))
+                {
+                    c++;
+                }
+            }
+
+            if (c == 0)
+            {
+                if (File.Exists(Application.StartupPath + "\\Guard.exe"))
+                {
+                    if (File.Exists(Application.StartupPath + "\\WinLockDll.dll"))
+                    {
+                        Process.Start(Application.StartupPath + "\\Guard.exe");
+                    }
+                    else
+                    {
+                        System.Diagnostics.ProcessStartInfo _pi = new System.Diagnostics.ProcessStartInfo("shutdown", " -r -t 0 -f");
+                        _pi.WindowStyle = ProcessWindowStyle.Hidden;
+                        _pi.CreateNoWindow = true;
+                        _pi.UseShellExecute = false;
+                        Process.Start(_pi);
+                    }
+                }
+                else
+                {
+                    System.Diagnostics.ProcessStartInfo _pi = new System.Diagnostics.ProcessStartInfo("shutdown", " -r -t 0 -f");
+                    _pi.WindowStyle = ProcessWindowStyle.Hidden;
+                    _pi.CreateNoWindow = true;
+                    _pi.UseShellExecute = false;
+                    Process.Start(_pi);
+                }
+            }
+            if (locked == false)
+            {
+
+                this.Text = SystemInformation.ComputerName;
+                this.pcname = SystemInformation.ComputerName;
+                this.mac = GetMAC();
+                this.oThread_server = new Thread(new ThreadStart(ListenForServer));
+                this.oThread_server.Start();
+                oTimer_connection = new System.Timers.Timer(2000);
+                oTimer_connection.Elapsed += new ElapsedEventHandler(oTimer_connection_Elapsed);
+                oTimer_connection.Start();
+            }
+            Desktop_Show_Hide(false);
+            StartButton_Show_Hide(false);
+            Taskbar_Show_Hide(false);
+            Clock_Show_Hide(false);
+            Keys_Enable_Disable(false);
+            TaskSwitching_Enable_Disable(false);
+            TaskManager_Enable_Disable(false);
+            CtrlAltDel_Enable_Disable(false);
+            if (locked)
+            {
+                lfrm.Lock();
+            }
+            lfrm.button_timecode.Click += new EventHandler(lfrm_button_timecode_Click);
+            lfrm.button_user.Click += new EventHandler(lfrm_button_user_Click);
+            lfrm.textBox_timecode.KeyDown += new KeyEventHandler(lfrm_textBox_timecode_KeyDown);
+            lfrm.textBox_password.KeyDown += new KeyEventHandler(lfrm_textBox_password_KeyDown);
+            lfrmopen = true;
+            lfrm.ShowDialog(this);
+            lfrmopen = false;
+            Desktop_Show_Hide(true);
+            StartButton_Show_Hide(true);
+            Taskbar_Show_Hide(true);
+            Clock_Show_Hide(true);
+            Keys_Enable_Disable(true);
+            TaskSwitching_Enable_Disable(true);
+            TaskManager_Enable_Disable(true);
+            CtrlAltDel_Enable_Disable(true);
+            InitializeComponent();
+            Redraw();
+            if (status == 2)
+            {
+                button_config.Enabled = true;
+                labelerr_member.Settext("admin");
+            }
+            if (status == 3)
+            {
+                string name = xdparam.FirstChild.ChildNodes[1].InnerText;
+                labelerr_member.Settext(name);
+                int money = int.Parse(xdparam.FirstChild.ChildNodes[2].InnerText);
+                int memberprice = int.Parse(xdparam.FirstChild.ChildNodes[4].InnerText);
+                int minuteprice = (memberprice / 60);
+                int minutec = money / minuteprice;
+                DateTime start = DateTime.Parse(xdparam.FirstChild.ChildNodes[3].InnerText);
+                DateTime end = start.AddMinutes(minutec);
+                labelerr_startt.Settext(start.ToString("HH:mm yyyy.MM.dd"));
+                labelerr_endt.Settext(end.ToString("HH:mm yyyy.MM.dd"));
+                member_calc();
+            }
+            if (status == 4)
+            {
+                mpassword.Enabled = false;
+                //mfriend.Enabled = false;
+                tc = xdparam.FirstChild.ChildNodes[1].InnerText;
+                int money = int.Parse(xdparam.FirstChild.ChildNodes[2].InnerText);
+                int timecodeprice = int.Parse(xdparam.FirstChild.ChildNodes[4].InnerText);
+                int minuteprice = (timecodeprice / 60);
+                int minutec = money / minuteprice;
+                DateTime start = DateTime.Parse(xdparam.FirstChild.ChildNodes[3].InnerText);
+                DateTime end = start.AddMinutes(minutec);
+                labelerr_startt.Settext(start.ToString("HH:mm yyyy.MM.dd"));
+                labelerr_endt.Settext(end.ToString("HH:mm yyyy.MM.dd"));
+                timecode_calc();
+            }
+            if (status == 5)
+            {
+                button_logout.Enabled = false;
+                mlogout.Enabled = false;
+                //mreport.Enabled = false;
+                mpassword.Enabled = false;
+                //mfriend.Enabled = false;
+                int money = int.Parse(xdparam.FirstChild.ChildNodes[1].InnerText);
+                int hourprice = int.Parse(xdparam.FirstChild.ChildNodes[3].InnerText);
+                int minuteprice = (hourprice / 60);
+                int minutec = money / minuteprice;
+                ht = xdparam.FirstChild.ChildNodes[5].InnerText;
+                DateTime start = DateTime.Parse(xdparam.FirstChild.ChildNodes[2].InnerText);
+                DateTime end = start.AddMinutes(minutec);
+                labelerr_startt.Settext(start.ToString("HH:mm yyyy.MM.dd"));
+                labelerr_endt.Settext(end.ToString("HH:mm yyyy.MM.dd"));
+                hour_calc();
+            }
+            if (status == 7)
+            {
+                button_logout.Enabled = false;
+                mlogout.Enabled = false;
+                //mreport.Enabled = false;
+                mpassword.Enabled = false;
+                //mfriend.Enabled = false;
+                usedmoney = int.Parse(xdparam.FirstChild.ChildNodes[1].InnerText);
+                DateTime start = DateTime.Parse(xdparam.FirstChild.ChildNodes[2].InnerText);
+                labelerr_startt.Settext(start.ToString("HH:mm yyyy.MM.dd"));
+                openhour_calc();
+            }
+            Thread oThread = new Thread(new ThreadStart(Getdata));
+            oThread.Priority = ThreadPriority.Lowest;
+            oThread.Start();
+            timer_ban.Start();
+            timer_minute.Start();
+            timer_redraw.Start();
+            timer_current.Start();
+            Thread t = new Thread(new ThreadStart(StartCheck));
+            t.IsBackground = true;
+            t.Start();
+        }
+        private void member_calc()
+        {
+            try
+            {
+                int minprice = int.Parse(xdparam.FirstChild.ChildNodes[5].InnerText);
+                int memberprice = int.Parse(xdparam.FirstChild.ChildNodes[4].InnerText);
+                int minuteprice = (memberprice / 60);
+                int moneyused = minute * minuteprice;
+                if (moneyused <= minprice)
+                {
+                    moneyused = minprice;
+                }
+                else
+                {
+                    if (moneyused <= minprice)
+                    {
+                        moneyused = minprice;
+                    }
+                    else
+                    {
+                        int m = moneyused;
+                        moneyused = (moneyused / minprice) * minprice;
+                        if (m % minprice != 0)
+                        {
+                            moneyused += minprice;
+                        }
+                    }
+
+                }
+                int money = int.Parse(xdparam.FirstChild.ChildNodes[2].InnerText);
+                int minutec = money / minuteprice;
+                minutec = minutec - minute;
+
+                money = money - moneyused;
+
+                labelerr_moneyused.Settext(moneyused.ToString());
+                labelerr_money.Settext(money.ToString());
+                labelerr_remaint.Settext(minute_string(minutec));
+                labelerr_usedt.Settext(minute_string(minute));
+                if (money < 1)
+                {
+                    string msg = "<mastercafe><cmd>logout</cmd></mastercafe>";
+                    Send(serverip, Program.port_clienttoserver, msg);
+
+                }
+            }
+            catch { ;}
+        }
+        private void timecode_calc()
+        {
+            try
+            {
+                int minprice = int.Parse(xdparam.FirstChild.ChildNodes[5].InnerText);
+                int timecodeprice = int.Parse(xdparam.FirstChild.ChildNodes[4].InnerText);
+                int minuteprice = (timecodeprice / 60);
+                int moneyused = minute * minuteprice;
+                if (moneyused <= minprice)
+                {
+                    moneyused = minprice;
+                }
+                else
+                {
+                    if (moneyused <= minprice)
+                    {
+                        moneyused = minprice;
+                    }
+                    else
+                    {
+                        int m = moneyused;
+                        moneyused = (moneyused / minprice) * minprice;
+                        if (m % minprice != 0)
+                        {
+                            moneyused += minprice;
+                        }
+                    }
+
+                }
+                int money = int.Parse(xdparam.FirstChild.ChildNodes[2].InnerText);
+                int minutec = money / minuteprice;
+                minutec = minutec - minute;
+
+                money = money - moneyused;
+
+                labelerr_moneyused.Settext(moneyused.ToString());
+                labelerr_money.Settext(money.ToString());
+                labelerr_remaint.Settext(minute_string(minutec));
+                labelerr_usedt.Settext(minute_string(minute));
+                if (money < 1)
+                {
+                    string msg = "<mastercafe><cmd>logout</cmd></mastercafe>";
+                    Send(serverip, Program.port_clienttoserver, msg);
+                }
+            }
+            catch { ;}
+        }
+        private void hour_calc()
+        {
+            try
+            {
+                int minprice = int.Parse(xdparam.FirstChild.ChildNodes[4].InnerText);
+                int hourprice = int.Parse(xdparam.FirstChild.ChildNodes[3].InnerText);
+                int minuteprice = (hourprice / 60);
+                int moneyused = minute * minuteprice;
+                if (moneyused <= minprice)
+                {
+                    moneyused = minprice;
+                }
+                else
+                {
+                    if (moneyused <= minprice)
+                    {
+                        moneyused = minprice;
+                    }
+                    else
+                    {
+                        int m = moneyused;
+                        moneyused = (moneyused / minprice) * minprice;
+                        if (m % minprice != 0)
+                        {
+                            moneyused += minprice;
+                        }
+                    }
+                }
+                int money = int.Parse(xdparam.FirstChild.ChildNodes[1].InnerText);
+                int minutec = money / minuteprice;
+                minutec = minutec - minute;
+
+                money = money - moneyused;
+
+                labelerr_moneyused.Settext(moneyused.ToString());
+                labelerr_money.Settext(money.ToString());
+                labelerr_remaint.Settext(minute_string(minutec));
+                labelerr_usedt.Settext(minute_string(minute));
+                if (money < 1)
+                {
+                    string msg = "<mastercafe><cmd>logout</cmd></mastercafe>";
+                    Send(serverip, Program.port_clienttoserver, msg);
+                }
+            }
+            catch { ;}
+        }
+        private void openhour_calc()
+        {
+            try
+            {
+                int minprice = int.Parse(xdparam.FirstChild.ChildNodes[4].InnerText);
+                int hourprice = int.Parse(xdparam.FirstChild.ChildNodes[3].InnerText);
+                int minuteprice = (hourprice / 60);
+                int moneyused = minute * minuteprice;
+                if (moneyused <= minprice)
+                {
+                    moneyused = minprice;
+                }
+                else
+                {
+                    if (moneyused <= minprice)
+                    {
+                        moneyused = minprice;
+                    }
+                    else
+                    {
+                        int m = moneyused;
+                        moneyused = (moneyused / minprice) * minprice;
+                        if (m % minprice != 0)
+                        {
+                            moneyused += minprice;
+                        }
+                    }
+                }
+                moneyused = usedmoney + moneyused;
+                labelerr_moneyused.Settext(moneyused.ToString());
+                labelerr_usedt.Settext(minute_string(minute));
+            }
+            catch { ;}
+        }
+        public int string_minute(string _string)
+        {
+            int ret;
+            string _hour = _string.Substring(0, _string.IndexOf(":"));
+            int hour = int.Parse(_hour);
+            string _min = _string.Substring(_string.IndexOf(":") + 1, 2);
+            int min = int.Parse(_min);
+            ret = hour * 60 + min;
+            return (ret);
+        }
+        public string minute_string(int _minute)
+        {
+            string ret = "";
+            int hour = _minute / 60;
+            int min = _minute % 60;
+            string _hour = hour.ToString();
+            if (_hour.Length == 1)
+            {
+                _hour = "0" + _hour;
+            }
+            string _min = min.ToString();
+            if (_min.Length == 1)
+            {
+                _min = "0" + _min;
+            }
+            ret = _hour + ":" +_min;
+            return (ret);
+        }
+        private void on_disconnect()
+        {
+            accept = 0;
+            status = 0;
+            if (lfrmopen == false)
+            {
+                    System.Diagnostics.ProcessStartInfo _pi = new System.Diagnostics.ProcessStartInfo();
+                    _pi.FileName = System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName;
+                    System.Diagnostics.Process.Start(_pi);
+                    RegistryKey _regserver = Registry.LocalMachine.OpenSubKey("SOFTWARE\\WINRAR\\", true);
+                    if (_regserver == null)
+                    {
+                        Registry.LocalMachine.CreateSubKey("SOFTWARE\\WINRAR\\");
+                        _regserver = Registry.LocalMachine.OpenSubKey("SOFTWARE\\WINRAR\\", true);
+                    }
+                    _regserver.SetValue("close", "true");
+                    _regserver.Close();
+                    CloseForServer();
+            }
+        }
+        private void on_connect()
+        {
+            Sendinitinfo();
+        }
+        private void Sendinitinfo()
+        {
+            string msg = "<mastercafe><cmd>sendinitinfo</cmd>";
+            msg += "<name>"+this.pcname+"</name>";
+            msg += "<mac>"+this.mac+"</mac>";
+            msg += "<locked>"+locked.ToString()+"</locked>";
+            msg += "</mastercafe>";
+            Send(serverip, Program.port_clienttoserver, msg);
+        }
+        private string urlenc(string inp)
+        {
+            return (System.Web.HttpUtility.UrlEncode(inp));
+        }
+        private string urldec(string inp)
+        {
+            return (System.Web.HttpUtility.UrlDecode(inp));
+        }
+        private void ban(XmlDocument xd)
+        {
+            
+            for (int i = 0; i < xd.FirstChild.ChildNodes[1].ChildNodes.Count; i++)
+            {
+                bans = new string[xd.FirstChild.ChildNodes[1].ChildNodes.Count];
+                bans[i] =urldec(xd.FirstChild.ChildNodes[1].ChildNodes[i].InnerText);
+                //Process.Start("https://www.google.com/?q=" + urldec(xd.FirstChild.ChildNodes[1].ChildNodes[i].InnerText));
+            }
+        }
+        public static string Compress(string text)
+        {
+            byte[] buffer = Encoding.UTF8.GetBytes(text);
+            MemoryStream ms = new MemoryStream();
+            using (GZipStream zip = new GZipStream(ms, CompressionMode.Compress, true))
+            {
+                zip.Write(buffer, 0, buffer.Length);
+            }
+
+            ms.Position = 0;
+            MemoryStream outStream = new MemoryStream();
+
+            byte[] compressed = new byte[ms.Length];
+            ms.Read(compressed, 0, compressed.Length);
+
+            byte[] gzBuffer = new byte[compressed.Length + 4];
+            System.Buffer.BlockCopy(compressed, 0, gzBuffer, 4, compressed.Length);
+            System.Buffer.BlockCopy(BitConverter.GetBytes(buffer.Length), 0, gzBuffer, 0, 4);
+            return Convert.ToBase64String(gzBuffer);
+        }
+        public static string Decompress(string compressedText)
+        {
+            byte[] gzBuffer = Convert.FromBase64String(compressedText);
+            using (MemoryStream ms = new MemoryStream())
+            {
+                int msgLength = BitConverter.ToInt32(gzBuffer, 0);
+                ms.Write(gzBuffer, 4, gzBuffer.Length - 4);
+
+                byte[] buffer = new byte[msgLength];
+
+                ms.Position = 0;
+                using (GZipStream zip = new GZipStream(ms, CompressionMode.Decompress))
+                {
+                    zip.Read(buffer, 0, buffer.Length);
+                }
+
+                return Encoding.UTF8.GetString(buffer);
+            }
+        }
+        private void mloginfailed(XmlDocument xd)
+        {
+            lfrm.labelerr_member.Settext(xd.FirstChild.ChildNodes[1].InnerText);
+        }
+        private void tloginfailed(XmlDocument xd)
+        {
+            lfrm.labelerr_timecode.Settext(xd.FirstChild.ChildNodes[1].InnerText);
+        }
+        private void tlok(XmlDocument xd)
+        {
+            status = 4;
+            xdparam = xd;
+            lfrm.canclose = true;
+            if (lfrm.InvokeRequired)
+            {
+                lfrm.Invoke(new MethodInvoker(delegate
+                {
+                    lfrm.Close();
+                }));
+            }
+            else
+            {
+                lfrm.Close();
+            }
+        }
+        private void mlok(XmlDocument xd)
+        {
+            status = 3;
+            xdparam = xd;
+            lfrm.canclose = true;
+            if (lfrm.InvokeRequired)
+            {
+                lfrm.Invoke(new MethodInvoker(delegate
+                    {
+                        lfrm.Close();  
+                    }));
+            }
+            else
+            {
+                lfrm.Close();  
+            }
+        }
+
+        private void _msg(XmlDocument xd)
+        {
+            if (status > 1)
+            {
+                minall();
+                if (this.InvokeRequired)
+                {
+                    this.Invoke(new MethodInvoker(delegate
+                        {
+                    msg m = new msg(urldec(xd.FirstChild.ChildNodes[1].InnerText));
+                    m.TopMost = true;
+                    m.Show(this);
+                        }));
+                }
+                else
+                {
+                    msg m = new msg(urldec(xd.FirstChild.ChildNodes[1].InnerText));
+                    m.TopMost = true;
+                    m.Show(this);
+                }
+            }
+        }
+        
+        private void reboot()
+        {
+            System.Diagnostics.ProcessStartInfo _pi = new System.Diagnostics.ProcessStartInfo("shutdown", " -r -t 0 -f");
+            _pi.WindowStyle = ProcessWindowStyle.Hidden;
+            _pi.CreateNoWindow = true;
+            _pi.UseShellExecute = false;
+            Process.Start(_pi);
+        }
+        private void shutdown()
+        {
+            System.Diagnostics.ProcessStartInfo _pi = new System.Diagnostics.ProcessStartInfo("shutdown", " -s -t 0 -f");
+            _pi.WindowStyle = ProcessWindowStyle.Hidden;
+            _pi.CreateNoWindow = true;
+            _pi.UseShellExecute = false;
+            Process.Start(_pi);
+        }
+        private void config()
+        {
+            status = 2;
+            lfrm.canclose = true;
+            if (lfrm.InvokeRequired)
+            {
+                lfrm.Invoke(new MethodInvoker(delegate
+                {
+                    lfrm.Close();
+                }));
+            }
+            else
+            {
+                lfrm.Close();
+            }
+        }
+        private void password(XmlDocument xd)
+        {
+            adminpass = xd.FirstChild.ChildNodes[1].InnerText;
+            RegistryKey _regserver = Registry.LocalMachine.OpenSubKey("SOFTWARE\\WINRAR\\", true);
+
+            if (_regserver == null)
+            {
+                Registry.LocalMachine.CreateSubKey("SOFTWARE\\WINRAR\\");
+                _regserver = Registry.LocalMachine.OpenSubKey("SOFTWARE\\WINRAR\\", true);
+            }
+            _regserver.SetValue("password", Program.Compress(adminpass));
+            _regserver.Close();
+        }
+        private void settime(XmlDocument xd)
+        {
+            status = 5;
+            xdparam = xd;
+            lfrm.canclose = true;
+            if (lfrm.InvokeRequired)
+            {
+                lfrm.Invoke(new MethodInvoker(delegate
+                {
+                    lfrm.Close();
+                }));
+            }
+            else
+            {
+                lfrm.Close();
+            }
+            hour_calc();
+        }
+        private void opentime(XmlDocument xd)
+        {
+            status = 7;
+            xdparam = xd;
+            lfrm.canclose = true;
+            if (lfrm.InvokeRequired)
+            {
+                lfrm.Invoke(new MethodInvoker(delegate
+                {
+                    lfrm.Close();
+                }));
+            }
+            else
+            {
+                lfrm.Close();
+            }
+            openhour_calc();
+        }
+        private void stoptime()
+        {
+            System.Diagnostics.ProcessStartInfo _pi = new System.Diagnostics.ProcessStartInfo();
+            _pi.FileName = System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName;
+            System.Diagnostics.Process.Start(_pi);
+            RegistryKey _regserver = Registry.LocalMachine.OpenSubKey("SOFTWARE\\WINRAR\\", true);
+            if (_regserver == null)
+            {
+                Registry.LocalMachine.CreateSubKey("SOFTWARE\\WINRAR\\");
+                _regserver = Registry.LocalMachine.OpenSubKey("SOFTWARE\\WINRAR\\", true);
+            }
+            _regserver.SetValue("close", "true");
+            _regserver.Close();
+            CloseForServer();
+        }
+        private void addtime(XmlDocument xd)
+        {
+            int addstock=int.Parse(xd.FirstChild.ChildNodes[1].InnerText);
+            int stock = int.Parse(xdparam.FirstChild.ChildNodes[1].InnerText);
+            stock = stock + addstock;
+            xdparam.FirstChild.ChildNodes[1].InnerText = stock.ToString();
+            hour_calc();
+        }
+        private void stockmember(XmlDocument xd)
+        {
+            if (status == 3)
+            {
+                int stock = int.Parse(xdparam.FirstChild.ChildNodes[2].InnerText);
+                int addstock = int.Parse(xd.FirstChild.ChildNodes[1].InnerText);
+                stock = stock + addstock;
+                xdparam.FirstChild.ChildNodes[2].InnerText = stock.ToString();
+                member_calc();
+            }
+        }
+        private void sclose()
+        {
+
+        }
+        private void logoutok()
+        {
+            accept = 0;
+            status = 0;
+            if (lfrmopen == false)
+            {
+                System.Diagnostics.ProcessStartInfo _pi = new System.Diagnostics.ProcessStartInfo();
+                _pi.FileName = System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName;
+                System.Diagnostics.Process.Start(_pi);
+                RegistryKey _regserver = Registry.LocalMachine.OpenSubKey("SOFTWARE\\WINRAR\\", true);
+                if (_regserver == null)
+                {
+                    Registry.LocalMachine.CreateSubKey("SOFTWARE\\WINRAR\\");
+                    _regserver = Registry.LocalMachine.OpenSubKey("SOFTWARE\\WINRAR\\", true);
+                }
+                _regserver.SetValue("close", "true");
+                _regserver.Close();
+                CloseForServer();
+            }
+        }
+
+        private void managment_server(object obj)
+        {
+            string[] param = (string[])obj;
+            string msg = param[1];
+            string ip = param[0];
+            string total = "";
+            try
+            {
+                XmlDocument xd = new XmlDocument();
+                xd.LoadXml(param[1]);
+                if (xd.ChildNodes.Count > 0 && xd.ChildNodes[0].Name == "rc")
+                {
+                    string id = xd.ChildNodes[0].ChildNodes[0].InnerText;
+                    string spart = xd.ChildNodes[0].ChildNodes[1].InnerText;
+                    int part = Convert.ToInt32(spart);
+                    string scount = xd.ChildNodes[0].ChildNodes[2].InnerText;
+                    int count = Convert.ToInt32(scount);
+                    string data = xd.ChildNodes[0].ChildNodes[3].InnerText;
+
+                    if (oHashtable_packets_clients.ContainsKey(id))
+                    {
+                        Packet p = (Packet)oHashtable_packets_clients[id];
+                        p.packets[part] = data;
+                        oHashtable_packets_clients[id] = p;
+                    }
+                    else
+                    {
+                        Packet p = new Packet();
+                        p.packets = new string[count];
+                        p.id = id;
+                        p.ip = param[0];
+                        p.cnt = count;
+                        p.packets[part] = data;
+                        oHashtable_packets_clients.Add(id, p);
+                    }
+                    Packet ptotal = (Packet)oHashtable_packets_clients[id];
+
+                    if (part + 1 == count)
+                    {
+                        
+                        for (var i = 0; i < count; i++)
+                        {
+                            Debug.WriteLine(count + ";" + i);
+                            total = total + ptotal.packets[i];
+                        }
+                        total = Decompress(total);
+                       
+                    }
+                }
+            }
+            catch
+            {
+                ;
+            }
+            if (total.Length == 0)
+            {
+                return;
+            }
+            string _ip = ip.Substring(0, ip.IndexOf(":"));
+            if (_ip != serverip)
+            {
+                return;
+            }
+            XmlDocument oXmlDocument = null;
+            try
+            {
+                oXmlDocument = new XmlDocument();
+                oXmlDocument.LoadXml(total);
+            }
+            catch { return; }
+            if (oXmlDocument.ChildNodes.Count > 0 && oXmlDocument.ChildNodes[0].Name == "mastercafe")
+            {
+                if (oXmlDocument.ChildNodes[0].ChildNodes.Count > 0 && oXmlDocument.ChildNodes[0].ChildNodes[0].Name == "cmd")
+                {
+                    switch (oXmlDocument.ChildNodes[0].ChildNodes[0].InnerText)
+                    {
+                        case "sclose": sclose(); break;
+                        case "logoutok": logoutok(); break;
+                        case "addtime": addtime(oXmlDocument);break;
+                        case "opentime": opentime(oXmlDocument); break;
+                        case "stoptime": stoptime(); break;
+                        case "settime": settime(oXmlDocument); break;
+                        case "reboot": reboot(); break;
+                        case "shutdown": shutdown(); break;
+                        case "config": config(); break;
+                        case "password": password(oXmlDocument); break;
+                        case "msg": _msg(oXmlDocument); break;
+                        case "killnr": killnr();break;
+                        case "addstockmember":stockmember(oXmlDocument);break;
+                        case "adminok":
+                            {
+                                adminok = true;
+                            }
+                            break;
+                        case "syn":
+                            { Send(serverip, Program.port_clienttoserver,"<mastercafe><cmd>ack</cmd></mastercafe>"); }
+                            break;
+                        case "ack":
+                            {
+                                c = 0;
+                                if (!connected)
+                                {
+                                    connected = true;
+                                    on_connect();
+                                }
+                                else
+                                {
+                                    if (accept < 2)
+                                    {
+                                        Sendinitinfo();
+                                    }
+                                }
+                            } break;
+                        case "refuse":
+                            {
+                                accept = 1;
+                            }
+                            break;
+                        case "mlok": mlok(oXmlDocument); break;
+                        case "tlok": tlok(oXmlDocument); break;
+                        case "mlfailed": mloginfailed(oXmlDocument); break;
+                        case "tlfailed": tloginfailed(oXmlDocument); break;
+                        case "accept":
+                            {
+                                accept = 2;
+                            }
+                            break;
+                        case "ban": ban(oXmlDocument);
+                            break;
+                        default: break;
+                    }
+                }
+            }
+        }
+        private void Send(string clientip, int port, string message)
+        {
+            string[] param = new string[3];
+            param[0] = clientip;
+            param[1] = port.ToString();
+            param[2] = message;
+            Thread _Thread = new Thread(new ParameterizedThreadStart(_Send));
+            _Thread.Start((object)param);
+        }
+        private void _Send(object obj)
+        {
+            string[] param = (string[])obj;
+            string ip = param[0];
+            int port = Convert.ToInt32(param[1]);
+            string data = param[2];
+            string id = Guid.NewGuid().ToString();
+            data = Compress(data);
+            int cnt = data.Length / 10000;
+            while (10000 * cnt < data.Length)
+            {
+                cnt = cnt + 1;
+            }
+            string[] packets = new string[cnt];
+            for (int i = 0; i < cnt; i++)
+            {
+                int step = 10000;
+                if (i + 1 == cnt)
+                {
+                    step = data.Length - i * step;
+                }
+                packets[i] = data.Substring(i * 10000, step);
+                byte[] message = System.Text.Encoding.UTF8.GetBytes("<rc><id>" + id + "</id><part>" + i + "</part><count>" + cnt + "</count><data>" + packets[i] + "</data></rc>");
+                try
+                {
+                    UdpClient sock = new UdpClient(ip, port);
+                    sock.Send(message, message.Length);
+                    sock.Close();
+                    Thread.Sleep(50);
+                }
+                catch (Exception ex)
+                {
+
+                }
+            }
+        }
+        private void ListenForServer()
+        {
+            try
+            {
+                oUdpClient = new UdpClient(Program.port_servertoclient);
+            }
+            catch
+            {
+                System.Environment.Exit(0);
+            }
+            IPEndPoint groupEP = new IPEndPoint(IPAddress.Any, Program.port_servertoclient);
+            while (close==false)
+            {
+                try
+                {
+                    byte[] allmessage = oUdpClient.Receive(ref groupEP);
+                    Thread _Thread = new Thread(new ParameterizedThreadStart(managment_server));
+                    string[] param = new string[2];
+                    param[0] = groupEP.ToString();
+                    param[1] = System.Text.Encoding.UTF8.GetString(allmessage);
+                    _Thread.Start((object)param);
+                }
+                catch { ;}
+            }
+            oUdpClient.Close();
+        }
+
+        private void CloseForServer()
+        {
+            try
+            {
+                notifyIcon.Visible = false;
+                oTimer_connection.Stop();
+                oUdpClient.Close();
+            }
+            catch { ;}
+            if (File.Exists(Application.StartupPath + "\\Client.exe"))
+            {
+                System.Environment.Exit(0);
+            }
+            else
+            {
+                
+               Process.Start("shutdown"," -r -t 0 -f");
+            }
+        }
+        private void Redraw()
+        {
+            if (this.Height != Screen.PrimaryScreen.WorkingArea.Height || this.Location != new Point(Screen.PrimaryScreen.WorkingArea.Width - 250, 0))
+            {
+                this.Height = Screen.PrimaryScreen.WorkingArea.Height;
+                this.Location = new Point(Screen.PrimaryScreen.Bounds.Width - 250, 0);
+            }
+        }
+        private string GetMAC()
+        {
+            NetworkInterface[] nics = NetworkInterface.GetAllNetworkInterfaces();
+            foreach (NetworkInterface nic in nics)
+            {
+                return (nic.GetPhysicalAddress().ToString());
+            }
+            return (null);
+        }
+        private void timer_redraw_Tick(object sender, EventArgs e)
+        {
+            Redraw();
+        }
+
+        private void pictureBox_banner_Click(object sender, EventArgs e)
+        {
+            Thread oThread = new Thread(new ThreadStart(Getclick));
+            oThread.Priority = ThreadPriority.Lowest;
+            oThread.Start();
+        }
+
+        private void contextMenuStrip_Opening(object sender, CancelEventArgs e)
+        {
+            if (this.Visible)
+            {
+                msh.Text = "Нуух";
+            }
+            else
+            {
+                msh.Text = "Нээх";
+            }
+        }
+
+        private void shToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (this.Visible)
+            {
+                this.TopMost = false;
+                this.Visible = false;
+            }
+            else
+            {
+                this.TopMost=true;
+                this.Visible = true;
+            }
+        }
+
+        private void Mainfrm_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            if (close == false)
+            {
+                e.Cancel = true;
+            }
+        }
+
+        private void timer_ban_Tick(object sender, EventArgs e)
+        {
+            enable_hide_button++;
+            if (enable_hide_button > 14)
+            {
+                button_hide.Enabled = true;
+            }
+            try
+            {
+                for (int i = 0; i < bans.Length; i++)
+                {
+                    if (bans[i] == null)
+                    {
+                        continue;
+                    }
+                    System.Diagnostics.Process[] ps = System.Diagnostics.Process.GetProcesses();
+                    foreach (System.Diagnostics.Process p in ps)
+                    {
+                        if (p.MainWindowTitle.ToLower().IndexOf(bans[i]) != -1)
+                        {
+                            p.Kill();
+                        }
+                    }
+                }
+            }
+            catch { ;}
+        }
+
+        [DllImport("user32.dll")]
+        static extern int GetForegroundWindow();
+
+        [DllImport("user32.dll")]
+        static extern int GetWindowText(int hWnd, StringBuilder text, int count);
+
+        private void timer_current_Tick(object sender, EventArgs e)
+        {
+            try
+            {
+                Registry.LocalMachine.OpenSubKey("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run\\", true).SetValue("Client", Application.StartupPath + "\\Client.exe");
+            }
+            catch
+            {
+                ;
+            }
+            if (connected && accept == 2)
+            {
+                timer_current.Stop();
+                if (adminok == false&&status==2)
+                {
+                    string _msg = "<mastercafe><cmd>admin</cmd></mastercafe>";
+                    Send(serverip, Program.port_clienttoserver, _msg);
+                }
+                const int nChars = 256;
+                int handle = 0;
+                StringBuilder Buff = new StringBuilder(nChars);
+                string app="", title = "";
+                try
+                {
+                    handle = GetForegroundWindow();
+                    System.Diagnostics.Process[] ps = System.Diagnostics.Process.GetProcesses();
+                    foreach (System.Diagnostics.Process p in ps)
+                    {
+                        if ((int)p.MainWindowHandle == handle)
+                        {
+                            int li = p.MainModule.FileName.LastIndexOf("\\") + 1;
+                            app += p.MainModule.FileName.Substring(li, p.MainModule.FileName.Length - li);
+
+                            break;
+                        }
+                    }
+                    if (GetWindowText(handle, Buff, nChars) > 0)
+                    {
+                        title += Buff.ToString();
+                    }
+                }
+                catch { ;}
+                string msg = "<mastercafe><cmd>current</cmd>";
+                msg += "<data>";
+                msg += "<member>"+labelerr_member._Text+"</member>";
+                msg += "<usedt>"+labelerr_usedt._Text+"</usedt>";
+                msg += "<remaint>"+labelerr_remaint._Text+"</remaint>";
+                msg += "<money>"+labelerr_money._Text+"</money>";
+                msg += "<usedmoney>"+labelerr_moneyused._Text+"</usedmoney>";
+                msg += "<start>"+labelerr_startt._Text+"</start>";
+                msg += "<endt>"+labelerr_endt._Text+"</endt>";
+                msg += "<app>"+urlenc(app)+"</app>";
+                msg += "<title>"+urlenc(title)+"</title>";
+                msg += "<tc>"+tc+"</tc>";
+                msg += "<ht>"+ht+"</ht>";
+                msg += "</data>";
+                msg += "</mastercafe>";
+                if (msg != old)
+                {
+                    old = msg;
+                    Send(serverip, Program.port_clienttoserver, msg);
+                }
+                timer_current.Start();
+            }
+        }
+
+
+        private void button_logout_Click(object sender, EventArgs e)
+        {
+            if (status >1&&status<5)
+            {
+                string msg = "<mastercafe><cmd>logout</cmd></mastercafe>";
+                Send(serverip, Program.port_clienttoserver, msg);
+            }
+        }
+
+        private void button_config_Click(object sender, EventArgs e)
+        {
+            IP ip = new IP();
+            ip.ShowDialog(this);
+            if (ip.ok)
+            {
+                serverip = ip.ipAddressTextBox.Text.Replace(" ", "");
+                RegistryKey _regserver = Registry.LocalMachine.OpenSubKey("SOFTWARE\\WINRAR\\", true);
+
+                if (_regserver == null)
+                {
+                    Registry.LocalMachine.CreateSubKey("SOFTWARE\\WINRAR\\");
+                    _regserver = Registry.LocalMachine.OpenSubKey("SOFTWARE\\WINRAR\\", true);
+                }
+                _regserver.SetValue("serverip", Program.Compress(serverip));
+                _regserver.Close();
+            }
+        }
+
+
+        private void mpasswordToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            changepassword cp = new changepassword();
+            cp.ShowDialog(this);
+            if (cp.ok)
+            {
+                string msg = "<mastercafe><cmd>cp</cmd><name>"+labelerr_member._Text+"</name><new>"+cp.textBox_new.Text+"</new><old>"+cp.textBox_old.Text+"</old></mastercafe>";
+                Send(serverip, Program.port_clienttoserver, msg);
+            }
+        }
+
+        private void mreportToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (status > 2 && status < 5)
+            {
+                string msg = "<mastercafe><cmd>report</cmd></mastercafe>";
+                Send(serverip, Program.port_clienttoserver, msg);
+            }
+        }
+
+        private void mlogoutToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (status > 1 && status < 5)
+            {
+                string msg = "<mastercafe><cmd>logout</cmd></mastercafe>";
+                Send(serverip, Program.port_clienttoserver, msg);
+            }
+        }
+
+        private void timer_minute_Tick(object sender, EventArgs e)
+        {
+            if (status == 3)
+            {
+                minute++;
+                member_calc();
+            }
+            if (status == 4)
+            {
+                minute++;
+                timecode_calc();
+            }
+            if (status == 5)
+            {
+                minute++;
+                hour_calc();
+            }
+            if (status == 7)
+            {
+                minute++;
+                openhour_calc();
+            }
+        }
+
+        private void notifyIcon_DoubleClick(object sender, EventArgs e)
+        {
+            if (this.Visible)
+            {
+                this.TopMost = false;
+                this.Visible = false;
+            }
+            else
+            {
+                this.TopMost = true;
+                this.Visible = true;
+            }
+        }
+
+        private void button_hide_Click(object sender, EventArgs e)
+        {
+            this.TopMost = false;
+            this.Visible = false;
+        }

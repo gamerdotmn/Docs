@@ -1,0 +1,1 @@
+"C:\Program Files\Valve\Counter-Strike\hl.exe" -steam -game cstrike -noforcemparms -noforcemaccel

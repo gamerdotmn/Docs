@@ -1,0 +1,2112 @@
+
+        void oTimer_idle_Elapsed(object sender, ElapsedEventArgs e)
+        {
+            using (DataContext_mastercafe dcm = new DataContext_mastercafe(Program.constr))
+            {
+                var cl1 = from c in dcm.clients where c.status == 1 select new { c.name};
+                foreach (var cl in cl1)
+                {
+                    if (idles.ContainsKey(cl.name))
+                    {
+                        idles.Remove(cl.name);
+                        client cli = dcm.clients.SingleOrDefault(c => c.name == cl.name);
+                        string msg = "<mastercafe><cmd>shutdown</cmd></mastercafe>";
+                        Send(cli.ip, Program.port_servertoclient, msg);
+                    }
+                    else
+                    {
+                        idles.Add(cl.name, cl.name);
+                    }
+                }
+            }
+        }
+
+        private void ListenBroadcast()
+        {
+            var Server = new UdpClient(Program.port_broadcast);
+            var ResponseData = Encoding.ASCII.GetBytes("SomeResponseData");
+
+            while (true)
+            {
+                var ClientEp = new IPEndPoint(IPAddress.Any, Program.port_broadcast);
+                var ClientRequestData = Server.Receive(ref ClientEp);
+                var ClientRequest = Encoding.ASCII.GetString(ClientRequestData);
+                Server.Send(ResponseData, ResponseData.Length, ClientEp);
+            }
+        }
+
+        private void ListenCashiers()
+        {
+            oUdpClient_cashiers = new UdpClient(Program.port_cashiertoserver);
+            IPEndPoint ipep = new IPEndPoint(IPAddress.Any, Program.port_cashiertoserver);
+            while (close == false)
+            {
+                try
+                {
+                    byte[] allmessage = oUdpClient_cashiers.Receive(ref ipep);
+                    recivedbytes += allmessage.Length;
+                    string[] param = new string[2];
+                    param[0] = ipep.ToString();
+                    param[1] = System.Text.Encoding.UTF8.GetString(allmessage);
+                    Task.Factory.StartNew(() => collect_cashiers(param));
+                }
+                catch
+                { ;}
+            }
+            oUdpClient_cashiers.Close();
+        }
+
+        private void collect_cashiers(object obj)
+        {
+            string[] param = (string[])obj;
+            try
+            {
+                XmlDocument xd = new XmlDocument();
+                xd.LoadXml(param[1]);
+                if (xd.ChildNodes.Count > 0 && xd.ChildNodes[0].Name == "rc")
+                {
+
+                    string id = xd.ChildNodes[0].ChildNodes[0].InnerText;
+                    string spart = xd.ChildNodes[0].ChildNodes[1].InnerText;
+                    int part = Convert.ToInt32(spart);
+                    string scount = xd.ChildNodes[0].ChildNodes[2].InnerText;
+                    int count = Convert.ToInt32(scount);
+                    string data = xd.ChildNodes[0].ChildNodes[3].InnerText;
+
+                    if (oHashtable_packets_cashiers.ContainsKey(id))
+                    {
+                        Packet p = (Packet)oHashtable_packets_cashiers[id];
+                        p.packets[part] = data;
+                        oHashtable_packets_cashiers[id] = p;
+                    }
+                    else
+                    {
+                        Packet p = new Packet();
+                        p.packets = new string[count];
+                        p.id = id;
+                        p.ip = param[0];
+                        p.cnt = count;
+                        p.packets[part] = data;
+                        oHashtable_packets_cashiers.Add(id, p);
+                    }
+                    Packet ptotal = (Packet)oHashtable_packets_cashiers[id];
+
+                    if (part + 1 == count)
+                    {
+                        string total = "";
+                        for (var i = 0; i < count; i++)
+                        {
+                            Debug.WriteLine(count + ";" + i);
+                            total = total + ptotal.packets[i];
+                        }
+                        total = Decompress(total);
+                        managment_cashiers(ptotal.ip, total);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Program.log.Error(ex);
+            }
+        }
+
+        /*
+        private void Timecode(XmlDocument xd,string ip)
+        {
+            if (employees.ContainsKey(ip))
+            {
+                using (DataContext_mastercafe dcm = new DataContext_mastercafe(Program.constr))
+                {
+                    int stock = int.Parse(xd.FirstChild.ChildNodes[1].InnerText);
+                    Random r_num = new Random();
+                    Random r_alp = new Random();
+                    string ret;
+                    bool ok = false;
+                    do
+                    {
+                        ret = String.Empty;
+                        int i;
+                        for (i = 0; i < 4; i++)
+                        {
+                            ret += r_num.Next(0, 9).ToString();
+                        }
+                        ret += (char)r_alp.Next(65, 90);
+                        for (i = 0; i < 4; i++)
+                        {
+                            ret += r_num.Next(0, 9).ToString();
+                        }
+                        ret += (char)r_alp.Next(65, 90);
+                        if ((from tc in dcm.timecodes where tc.code == ret select tc.code).Count() == 0)
+                        {
+                            timecode tc = new timecode();
+                            tc.code = ret;
+                            tc.ot = DateTime.Now;
+                            tc.stock = stock;
+                            dcm.timecodes.InsertOnSubmit(tc);
+                            employee_timecode etc = new employee_timecode();
+                            etc.employee_name =;
+                            etc.price = stock;
+                            etc.timecode_code = ret;
+                            etc.ot = DateTime.Now;
+                            ParamCashier pc = (ParamCashier)employees[ip];
+                            etc.employee_id = pc.id;
+                            dcm.employee_timecodes.InsertOnSubmit(etc);
+                            try { dcm.SubmitChanges(); }
+                            catch { ;}
+                            string msg = "<mastercafe><cmd>timecode</cmd>";
+                            msg += "<timecode>" + tc.code + "</timecode>";
+                            msg += "<cost>" + stock.ToString() + "</cost>";
+                            msg += "<now>" + DateTime.Now + "</now>";
+                            msg += "</mastercafe>";
+                            Send(ip, Program.port_servertocashier, msg);
+                            ok = true;
+                        }
+                    } while (ok == false);
+                }
+            }
+        }
+        */
+
+        private void ListenClients()
+        {
+            oUdpClient_clients = new UdpClient(Program.port_clienttoserver);
+            IPEndPoint ipep = new IPEndPoint(IPAddress.Any, Program.port_clienttoserver);
+            while (close == false)
+            {
+                try
+                {
+                    byte[] allmessage = oUdpClient_clients.Receive(ref ipep);
+                    recivedbytes += allmessage.Length;
+                    string[] param = new string[2];
+                    param[0] = ipep.ToString();
+                    param[1] = System.Text.Encoding.UTF8.GetString(allmessage);
+                    Task.Factory.StartNew(() => collect_clients(param));
+                }
+                catch { ;}
+            }
+            oUdpClient_clients.Close();
+        }
+
+        private void collect_clients(object obj)
+        {
+            string[] param = (string[])obj;
+            try
+            {
+                XmlDocument xd = new XmlDocument();
+                xd.LoadXml(param[1]); 
+                if (xd.ChildNodes.Count > 0 && xd.ChildNodes[0].Name == "rc")
+                {
+                    string id = xd.ChildNodes[0].ChildNodes[0].InnerText;
+                    string spart = xd.ChildNodes[0].ChildNodes[1].InnerText;
+                    int part = Convert.ToInt32(spart);
+                    string scount = xd.ChildNodes[0].ChildNodes[2].InnerText;
+                    int count = Convert.ToInt32(scount);
+                    string data = xd.ChildNodes[0].ChildNodes[3].InnerText;
+
+                    if (oHashtable_packets_clients.ContainsKey(id))
+                    {
+                        Packet p = (Packet)oHashtable_packets_clients[id];
+                        p.packets[part] = data;
+                        oHashtable_packets_clients[id] = p;
+                    }
+                    else
+                    {
+                        Packet p = new Packet();
+                        p.packets = new string[count];
+                        p.id = id;
+                        p.ip = param[0];
+                        p.cnt = count;
+                        p.packets[part] = data;
+                        oHashtable_packets_clients.Add(id, p);
+                    }
+                    Packet ptotal = (Packet)oHashtable_packets_clients[id];
+
+                    if (part + 1 == count)
+                    {
+                        string total = "";
+                        for (var i = 0; i < count; i++)
+                        {
+                            Debug.WriteLine(count + ";" + i);
+                            total = total + ptotal.packets[i];
+                        }
+                        total = Decompress(total);
+                        managment_clients(ptotal.ip, total);
+                    }
+                }
+            }
+            catch
+            {
+                Console.Write("error");
+            }
+        }
+
+        private void cashier_stockmember(XmlDocument xd, string ip)
+        {
+            if (employees.ContainsKey(ip))
+            {
+                using (DataContext_mastercafe dcm = new DataContext_mastercafe(Program.constr))
+                {
+                    int bonus = 0;
+                    ParamCashier pc = (ParamCashier)employees[ip];
+                    member me = dcm.members.SingleOrDefault(m => m.name == xd.FirstChild.ChildNodes[1].InnerText);
+                    if (me.bonus != null)
+                    {
+                        bonus = (int.Parse(xd.FirstChild.ChildNodes[2].InnerText) / 100) * (int)me.bonus;
+                    }
+                    me.stock = me.stock + int.Parse(xd.FirstChild.ChildNodes[2].InnerText)+bonus;
+                    employee_member e_m = new employee_member();
+                    e_m.employee_id = pc.id;
+                    e_m.member_id = me.id;
+                    e_m.ot = DateTime.Now;
+                    e_m.price = int.Parse(xd.FirstChild.ChildNodes[2].InnerText);
+                    dcm.employee_members.InsertOnSubmit(e_m);
+                    var cl3 = from c in dcm.clients where c.status == 3 select new { c.name, c.data };
+                    foreach (var cl in cl3)
+                    {
+                        XmlDocument _xd = new XmlDocument();
+                        _xd.LoadXml(cl.data);
+                        if (_xd.FirstChild.ChildNodes[0].InnerText.ToLower() == me.name.ToLower())
+                        {
+                            _xd.FirstChild.ChildNodes[3].InnerText = (int.Parse(_xd.FirstChild.ChildNodes[3].InnerText) + int.Parse(xd.FirstChild.ChildNodes[2].InnerText)).ToString(); ;
+                            client cli = dcm.clients.SingleOrDefault(c => c.name == cl.name);
+                            cli.data = _xd.OuterXml;
+                            string msg = "<mastercafe><cmd>addstockmember</cmd>";
+                            msg += "<stock>" + int.Parse(xd.FirstChild.ChildNodes[2].InnerText) + "</stock>";
+                            msg += "</mastercafe>";
+                            Send(cli.ip, Program.port_servertoclient, msg);
+                            break;
+                        }
+                    }
+                    try { dcm.SubmitChanges(); }
+                    catch { ;}
+                    ci();
+                }
+            }
+        }
+        private void Group(XmlDocument xd)
+        {
+            using (DataContext_mastercafe dcm = new DataContext_mastercafe(Program.constr))
+            {
+                int groupid = int.Parse(xd.FirstChild.ChildNodes[1].InnerText);
+                for (int i = 0; i < xd.FirstChild.ChildNodes[2].ChildNodes.Count; i++)
+                {
+                    client clnew = new client();
+                    client cl = dcm.clients.SingleOrDefault(c => c.name == xd.FirstChild.ChildNodes[2].ChildNodes[i].ChildNodes[0].InnerText);
+                    clnew.name = cl.name;
+                    clnew.ip = cl.ip;
+                    clnew.mac = cl.mac;
+                    clnew.group_id = groupid;
+                    clnew.data = cl.data;
+                    clnew.status = cl.status;
+                    dcm.clients.DeleteOnSubmit(cl);
+                    dcm.clients.InsertOnSubmit(clnew);
+                    try { dcm.SubmitChanges(); }
+                    catch { ;}
+                }
+            }
+        }
+        private void Msg(XmlDocument xd)
+        {
+            for (int i = 0; i < xd.FirstChild.ChildNodes[2].ChildNodes.Count; i++)
+            {
+                string msg = "<mastercafe><cmd>msg</cmd>";
+                msg += "<text>"+xd.FirstChild.ChildNodes[1].InnerText+"</text>";
+                msg += "</mastercafe>";
+                Send(xd.FirstChild.ChildNodes[2].ChildNodes[i].ChildNodes[0].InnerText, Program.port_servertoclient, msg);
+            }
+        }
+        private void reboot(XmlDocument xd)
+        {
+            string msg = "<mastercafe><cmd>reboot</cmd></mastercafe>";
+            for (int i = 0; i < xd.FirstChild.ChildNodes[1].ChildNodes.Count; i++)
+            {
+                Send(xd.FirstChild.ChildNodes[1].ChildNodes[i].ChildNodes[0].InnerText, Program.port_servertoclient, msg);
+            }
+        }
+        private void finish(XmlDocument xd)
+        {
+            string msg = "<mastercafe><cmd>logoutok</cmd></mastercafe>";
+            using (DataContext_mastercafe dcm = new DataContext_mastercafe(Program.constr))
+            {
+                for (int i = 0; i < xd.FirstChild.ChildNodes[1].ChildNodes.Count; i++)
+                {
+                    client cl = dcm.clients.Single(cli => cli.ip == xd.FirstChild.ChildNodes[1].ChildNodes[i].ChildNodes[0].InnerText);
+                    cl.status = 1;
+             
+                        cl.data = "<data>";
+                        cl.data += "<member></member>";
+                        cl.data += "<usedt></usedt>";
+                        cl.data += "<remaint></remaint>";
+                        cl.data += "<money></money>";
+                        cl.data += "<usedmoney></usedmoney>";
+                        cl.data += "<start></start>";
+                        cl.data += "<endt></endt>";
+                        cl.data += "<app></app>";
+                        cl.data += "<title></title>";
+                        cl.data += "<tc></tc>";
+                        cl.data += "<ht></ht>";
+                        cl.data += "</data>";
+                        try
+                        {
+                            dcm.SubmitChanges();
+                        }
+                        catch { ;}
+                    Send(xd.FirstChild.ChildNodes[1].ChildNodes[i].ChildNodes[0].InnerText, Program.port_servertoclient, msg);
+                }
+            }
+        }
+        private void sclose(XmlDocument xd)
+        {
+            string msg = "<mastercafe><cmd>sclose</cmd></mastercafe>";
+            using (DataContext_mastercafe dcm = new DataContext_mastercafe(Program.constr))
+            {
+                for (int i = 0; i < xd.FirstChild.ChildNodes[1].ChildNodes.Count; i++)
+                {
+                    client cl = dcm.clients.Single(cli => cli.ip == xd.FirstChild.ChildNodes[1].ChildNodes[i].ChildNodes[0].InnerText);
+                    cl.status=0;
+
+                        cl.data = "<data>";
+                        cl.data += "<member></member>";
+                        cl.data += "<usedt></usedt>";
+                        cl.data += "<remaint></remaint>";
+                        cl.data += "<money></money>";
+                        cl.data += "<usedmoney></usedmoney>";
+                        cl.data += "<start></start>";
+                        cl.data += "<endt></endt>";
+                        cl.data += "<app></app>";
+                        cl.data += "<title></title>";
+                        cl.data += "<tc></tc>";
+                        cl.data += "<ht></ht>";
+                        cl.data += "</data>";
+                        try
+                        {
+                            dcm.SubmitChanges();
+                        }
+                        catch { ;}
+                    Send(xd.FirstChild.ChildNodes[1].ChildNodes[i].ChildNodes[0].InnerText, Program.port_servertoclient, msg);
+                }
+            }
+        }
+        private void shutdown(XmlDocument xd)
+        {
+            string msg = "<mastercafe><cmd>shutdown</cmd></mastercafe>";
+            for (int i = 0; i < xd.FirstChild.ChildNodes[1].ChildNodes.Count; i++)
+            {
+                Send(xd.FirstChild.ChildNodes[1].ChildNodes[i].ChildNodes[0].InnerText, Program.port_servertoclient, msg);
+            }
+        }
+        private void config(XmlDocument xd)
+        {
+            string msg = "<mastercafe><cmd>config</cmd></mastercafe>";
+            for (int i = 0; i < xd.FirstChild.ChildNodes[1].ChildNodes.Count; i++)
+            {
+                Send(xd.FirstChild.ChildNodes[1].ChildNodes[i].ChildNodes[0].InnerText, Program.port_servertoclient, msg);
+            }
+        }
+        public string minute_string(int _minute)
+        {
+            string ret = "";
+            int hour = _minute / 60;
+            int min = _minute % 60;
+            string _hour = hour.ToString();
+            if (_hour.Length == 1)
+            {
+                _hour = "0" + _hour;
+            }
+            string _min = min.ToString();
+            if (_min.Length == 1)
+            {
+                _min = "0" + _min;
+            }
+            ret = _hour + ":" + _min;
+            return (ret);
+        }
+        public int string_minute(string _string)
+        {
+            int ret;
+            string _hour = _string.Substring(0, _string.IndexOf(":"));
+            int hour = int.Parse(_hour);
+            string _min = _string.Substring(_string.IndexOf(":") + 1, 2);
+            int min = int.Parse(_min);
+            ret = hour * 60 + min;
+            return (ret);
+        }
+        private void settime(XmlDocument xd,string ip)
+        {
+            if (employees.ContainsKey(ip))
+            {
+                using (DataContext_mastercafe dcm = new DataContext_mastercafe(Program.constr))
+                {
+                    string name = xd.FirstChild.ChildNodes[1].InnerText;
+                    int price = int.Parse(xd.FirstChild.ChildNodes[2].InnerText);
+                    client cl = dcm.clients.SingleOrDefault(c => c.name == name);
+                    if (cl.status < 2)
+                    {
+                        if (cl.status == 1)
+                        {
+                            cl.status = 5;
+                        }
+                        if (cl.status == 0)
+                        {
+                            cl.status = 6;
+                        }
+                        ParamCashier pc = (ParamCashier)employees[ip];
+                        employee_hour eh = new employee_hour();
+                        eh.employee_id = pc.id;
+                        eh.client_name = name;
+                        eh.ot = DateTime.Now;
+                        eh.price = price;
+                        dcm.employee_hours.InsertOnSubmit(eh);
+                        cl.data = "<data>";
+                        cl.data += "<member></member>";
+                        cl.data += "<usedt></usedt>";
+                        cl.data += "<remaint></remaint>";
+                        cl.data += "<money>" + price + "</money>";
+                        cl.data += "<usedmoney></usedmoney>";
+                        cl.data += "<start></start>";
+                        cl.data += "<endt></endt>";
+                        cl.data += "<app></app>";
+                        cl.data += "<title></title>";
+                        cl.data += "<tc></tc>";
+                        cl.data += "<ht></ht>";
+                        cl.data += "</data>";
+                        try { dcm.SubmitChanges(); }
+                        catch { ;}
+                        string msg = "<mastercafe><cmd>settime</cmd>";
+                        msg += "<money>" + price + "</money>";
+                        msg += "<start>" + DateTime.Now.ToString() + "</start>";
+                        msg += "<hourprice>" + cl.groups.hourprice + "</hourprice>";
+                        msg += "<minprice>" + cl.groups.minprice + "</minprice>";
+                        msg += "<ht></ht>";
+                        msg += "</mastercafe>";
+                        Send(cl.ip, Program.port_servertoclient, msg);
+                    }
+                }
+            }
+        }
+        private void opentime(XmlDocument xd, string ip)
+        {
+            if (employees.ContainsKey(ip))
+            {
+                using (DataContext_mastercafe dcm = new DataContext_mastercafe(Program.constr))
+                {
+                    string name = xd.FirstChild.ChildNodes[1].InnerText;
+                    client cl = dcm.clients.SingleOrDefault(c => c.name == name);
+                    if (cl.status < 2)
+                    {
+                        if (cl.status == 1)
+                        {
+                            cl.status = 7;
+                        }
+                        if (cl.status == 0)
+                        {
+                            cl.status = 8;
+                        }
+                        cl.data = "<data>";
+                        cl.data += "<member></member>";
+                        cl.data += "<usedt></usedt>";
+                        cl.data += "<remaint></remaint>";
+                        cl.data += "<money></money>";
+                        cl.data += "<usedmoney>0</usedmoney>";
+                        cl.data += "<start></start>";
+                        cl.data += "<endt></endt>";
+                        cl.data += "<app></app>";
+                        cl.data += "<title></title>";
+                        cl.data += "<tc></tc>";
+                        cl.data += "<ht></ht>";
+                        cl.data += "</data>";
+                        try { dcm.SubmitChanges(); }
+                        catch { ;}
+                        string msg = "<mastercafe><cmd>opentime</cmd>";
+                        msg += "<usedmoney>0</usedmoney>";
+                        msg += "<start>" + DateTime.Now.ToString() + "</start>";
+                        msg += "<hourprice>" + cl.groups.hourprice + "</hourprice>";
+                        msg += "<minprice>" + cl.groups.minprice + "</minprice>";
+                        msg += "</mastercafe>";
+                        Send(cl.ip, Program.port_servertoclient, msg);
+                    }
+                }
+            }
+        }
+        private void stoptime(XmlDocument xd, string ip)
+        {
+            if (employees.ContainsKey(ip))
+            {
+                using (DataContext_mastercafe dcm = new DataContext_mastercafe(Program.constr))
+                {
+                    string name = xd.FirstChild.ChildNodes[1].InnerText;
+                    client cl = dcm.clients.SingleOrDefault(c => c.name == name);
+                    if (cl.status == 8)
+                    {
+                        cl.status = 0;
+                    }
+                    if (cl.status == 7)
+                    {
+                        cl.status = 1;
+                    }
+                    XmlDocument _xd = new XmlDocument();
+                    _xd.LoadXml(cl.data);
+                    ParamCashier pc = (ParamCashier)employees[ip];
+                    employee_hour eh = new employee_hour();
+                    eh.employee_id = pc.id;
+                    eh.client_name = name;
+                    eh.ot = DateTime.Now;
+                    int price = int.Parse(_xd.FirstChild.ChildNodes[4].InnerText);
+                    eh.price = price;
+                    //client_hours
+                    client_hour ch = new client_hour();
+                    ch.begint = DateTime.Parse(_xd.FirstChild.ChildNodes[5].InnerText);
+                    ch.endt = DateTime.Now;
+                    ch.client_name = cl.name;
+                    ch.stock = int.Parse(_xd.FirstChild.ChildNodes[4].InnerText);
+                    dcm.client_hours.InsertOnSubmit(ch);
+                    //client
+                    cl.data = "<data>";
+                    cl.data += "<member></member>";
+                    cl.data += "<usedt></usedt>";
+                    cl.data += "<remaint></remaint>";
+                    cl.data += "<money></money>";
+                    cl.data += "<usedmoney></usedmoney>";
+                    cl.data += "<start></start>";
+                    cl.data += "<endt></endt>";
+                    cl.data += "<app></app>";
+                    cl.data += "<title></title>";
+                    cl.data += "<tc></tc>";
+                    cl.data += "<ht></ht>";
+                    cl.data += "</data>";
+                    dcm.employee_hours.InsertOnSubmit(eh);
+                    try { dcm.SubmitChanges(); }
+                    catch { ;}
+                    string msg = "<mastercafe><cmd>stoptime</cmd></mastercafe>";
+                    Send(cl.ip, Program.port_servertoclient, msg);
+                }
+            }
+        }
+        private void getmoney(XmlDocument xd, string ip)
+        {
+            if (employees.ContainsKey(ip))
+            {
+
+                using (DataContext_mastercafe dcm = new DataContext_mastercafe(Program.constr))
+                {
+                    ParamCashier pc = (ParamCashier)employees[ip];
+                    string name = xd.FirstChild.ChildNodes[1].InnerText;
+                    client cl = dcm.clients.SingleOrDefault(c => c.name == name);
+                    XmlDocument _xd = new XmlDocument();
+                    _xd.LoadXml(cl.data);
+                    if (_xd.FirstChild.ChildNodes[10].InnerText.Length > 0)
+                    {
+                        string msg = "<mastercafe><cmd>ofailed</cmd><error>Цагны загвараас мөнгө буцаах боломжгүй.</error></mastercafe>";
+                        Send(ip, Program.port_servertocashier, msg);
+                    }
+                    else
+                    {
+                        //client_hours
+                        client_hour ch = new client_hour();
+                        ch.begint = DateTime.Parse(_xd.FirstChild.ChildNodes[5].InnerText);
+                        ch.endt = DateTime.Now;
+                        ch.client_name = cl.name;
+                        ch.stock = int.Parse(_xd.FirstChild.ChildNodes[4].InnerText);
+                        dcm.client_hours.InsertOnSubmit(ch);
+                        //employee hour
+                        employee_hour eh = new employee_hour();
+                        eh.client_name = cl.name;
+                        eh.employee_id = pc.id;
+                        eh.ot = DateTime.Now;
+                        eh.price = -int.Parse(_xd.FirstChild.ChildNodes[3].InnerText);
+                        dcm.employee_hours.InsertOnSubmit(eh);
+                        if (cl.status == 5)
+                        {
+                            cl.status = 1;
+                        }
+                        if (cl.status == 6)
+                        {
+                            cl.status = 0;
+                        }
+                        cl.data = "<data>";
+                        cl.data += "<member></member>";
+                        cl.data += "<usedt></usedt>";
+                        cl.data += "<remaint></remaint>";
+                        cl.data += "<money></money>";
+                        cl.data += "<usedmoney></usedmoney>";
+                        cl.data += "<start></start>";
+                        cl.data += "<endt></endt>";
+                        cl.data += "<app></app>";
+                        cl.data += "<title></title>";
+                        cl.data += "<tc></tc>";
+                        cl.data += "<ht></ht>";
+                        cl.data += "</data>";
+                        try { dcm.SubmitChanges(); }
+                        catch { ;}
+                        string _msg = "<mastercafe><cmd>getmoney</cmd><price>" + _xd.FirstChild.ChildNodes[3].InnerText + "</price></mastercafe>";
+                        Send(ip, Program.port_servertocashier, _msg);
+                        string msg = "<mastercafe><cmd>stoptime</cmd></mastercafe>";
+                        Send(cl.ip, Program.port_servertoclient, msg);
+                    }
+                }
+            }
+        }
+        private void addtime(XmlDocument xd, string ip)
+        {
+            if (employees.ContainsKey(ip))
+            {
+                using (DataContext_mastercafe dcm = new DataContext_mastercafe(Program.constr))
+                {
+                    ParamCashier pc = (ParamCashier)employees[ip];
+                    string name = xd.FirstChild.ChildNodes[1].InnerText;
+                    int price = int.Parse(xd.FirstChild.ChildNodes[2].InnerText);
+                    client cl = dcm.clients.SingleOrDefault(c => c.name == name);
+                    if (cl.status > 4 && cl.status < 7)
+                    {
+                        XmlDocument _xd = new XmlDocument();
+                        _xd.LoadXml(cl.data);
+                        _xd.FirstChild.ChildNodes[3].InnerText = (int.Parse(_xd.FirstChild.ChildNodes[3].InnerText) + price).ToString();
+                        cl.data = _xd.OuterXml;
+                        employee_hour eh = new employee_hour();
+                        eh.employee_id = pc.id;
+                        eh.client_name = name;
+                        eh.ot = DateTime.Now;
+                        eh.price = price;
+
+                        dcm.employee_hours.InsertOnSubmit(eh);
+                        try { dcm.SubmitChanges(); }
+                        catch { ;}
+                        string msg = "<mastercafe><cmd>addtime</cmd>";
+                        msg += "<money>" + eh.price + "</money>";
+                        msg += "</mastercafe>";
+                        Send(cl.ip, Program.port_servertoclient, msg);
+                    }
+                }
+            }
+        }
+        private void changepc(XmlDocument xd,string ip)
+        {
+            using (DataContext_mastercafe dcm = new DataContext_mastercafe(Program.constr))
+            {
+                string _old = xd.FirstChild.ChildNodes[1].InnerText;
+                string _new = xd.FirstChild.ChildNodes[2].InnerText;
+                client cl_new = dcm.clients.SingleOrDefault(c => c.name == _new);
+                client cl_old = dcm.clients.SingleOrDefault(c => c.name == _old);
+                if (cl_new.status < 2)
+                {
+                    if (cl_old.status > 4 && cl_old.status < 7)
+                    {
+                        if (cl_new.status == 0)
+                        {
+                            cl_new.status = 6;
+                        }
+                        if (cl_new.status == 1)
+                        {
+                            cl_new.status = 5;
+                        }
+                        if (cl_old.status == 5)
+                        {
+                            cl_old.status = 1;
+                        }
+                        if (cl_old.status == 6)
+                        {
+                            cl_old.status = 0;
+                        }
+                        cl_new.data = cl_old.data;
+                        cl_old.data = "<data>";
+                        cl_old.data += "<member></member>";
+                        cl_old.data += "<usedt></usedt>";
+                        cl_old.data += "<remaint></remaint>";
+                        cl_old.data += "<money></money>";
+                        cl_old.data += "<usedmoney></usedmoney>";
+                        cl_old.data += "<start></start>";
+                        cl_old.data += "<endt></endt>";
+                        cl_old.data += "<app></app>";
+                        cl_old.data += "<title></title>";
+                        cl_old.data += "<tc></tc>";
+                        cl_old.data += "<price></price>";
+                        cl_old.data += "<ht></ht>";
+                        cl_old.data += "</data>";
+                        try { dcm.SubmitChanges(); }
+                        catch { ;}
+                        XmlDocument _xd = new XmlDocument();
+                        _xd.LoadXml(cl_new.data);
+                        int money = int.Parse(_xd.FirstChild.ChildNodes[3].InnerText);
+                        string msg = "<mastercafe><cmd>stoptime</cmd></mastercafe>";
+                        Send(cl_old.ip, Program.port_servertoclient, msg);
+                        msg = "<mastercafe><cmd>settime</cmd>";
+                        msg += "<money>" + money + "</money>";
+                        msg += "<start>" + DateTime.Now.ToString() + "</start>";
+                        msg += "<hourprice>" + cl_new.groups.hourprice + "</hourprice>";
+                        msg += "<minprice>" + cl_new.groups.minprice + "</minprice>";
+                        msg += "<ht>" + _xd.FirstChild.ChildNodes[10].InnerText + "</ht>";
+                        msg += "</mastercafe>";
+                        Send(cl_new.ip, Program.port_servertoclient, msg);
+                    }
+                    if (cl_old.status > 6 && cl_old.status < 9)
+                    {
+                        if (cl_new.status == 0)
+                        {
+                            cl_new.status = 8;
+                        }
+                        if (cl_new.status == 1)
+                        {
+                            cl_new.status = 7;
+                        }
+                        if (cl_old.status == 7)
+                        {
+                            cl_old.status = 1;
+                        }
+                        if (cl_old.status == 8)
+                        {
+                            cl_old.status = 0;
+                        }
+                        cl_new.data = cl_old.data;
+                        cl_old.data = "<data>";
+                        cl_old.data += "<member></member>";
+                        cl_old.data += "<usedt></usedt>";
+                        cl_old.data += "<remaint></remaint>";
+                        cl_old.data += "<money></money>";
+                        cl_old.data += "<usedmoney></usedmoney>";
+                        cl_old.data += "<start></start>";
+                        cl_old.data += "<endt></endt>";
+                        cl_old.data += "<app></app>";
+                        cl_old.data += "<title></title>";
+                        cl_old.data += "<tc></tc>";
+                        cl_old.data += "<price></price>";
+                        cl_old.data += "</data>";
+                        try { dcm.SubmitChanges(); }
+                        catch { ;}
+                        XmlDocument _xd = new XmlDocument();
+                        _xd.LoadXml(cl_new.data);
+                        int money = int.Parse(_xd.FirstChild.ChildNodes[4].InnerText);
+                        string msg = "<mastercafe><cmd>stoptime</cmd></mastercafe>";
+                        Send(cl_old.ip, Program.port_servertoclient, msg);
+                        msg = "<mastercafe><cmd>opentime</cmd>";
+                        msg += "<usedmoney>" + money.ToString() + "</usedmoney>";
+                        msg += "<start>" + DateTime.Now.ToString() + "</start>";
+                        msg += "<hourprice>" + cl_new.groups.hourprice + "</hourprice>";
+                        msg += "<minprice>" + cl_new.groups.minprice + "</minprice>";
+                        msg += "</mastercafe>";
+                        Send(cl_new.ip, Program.port_servertoclient, msg);
+                    }
+                }
+            }
+        }
+        private void password(XmlDocument xd)
+        {
+            string msg = "<mastercafe><cmd>password</cmd><pwd>" + xd.FirstChild.ChildNodes[1].InnerText + "</pwd></mastercafe>";
+            for (int i = 0; i < xd.FirstChild.ChildNodes[2].ChildNodes.Count; i++)
+            {
+                Send(xd.FirstChild.ChildNodes[2].ChildNodes[i].ChildNodes[0].InnerText, Program.port_servertoclient, msg);
+            }
+        }
+        private void managment_cashiers(string ip,string msg)
+        {
+            if (msg.Length == 0)
+            {
+                return;
+            }
+            string _ip = ip.Substring(0, ip.IndexOf(":"));
+            XmlDocument oXmlDocument = null;
+            try
+            {
+                oXmlDocument = new XmlDocument();
+                oXmlDocument.LoadXml(msg);
+            }
+            catch { return; }
+            if (oXmlDocument.ChildNodes.Count > 0 && oXmlDocument.ChildNodes[0].Name == "mastercafe")
+            {
+                if (oXmlDocument.ChildNodes[0].ChildNodes.Count > 0 && oXmlDocument.ChildNodes[0].ChildNodes[0].Name == "cmd")
+                {
+                    switch (oXmlDocument.ChildNodes[0].ChildNodes[0].InnerText)
+                    {
+                        case "changepc": changepc(oXmlDocument, _ip); break;
+                        case "addtime": addtime(oXmlDocument, _ip); break;
+                        case "getmoney": getmoney(oXmlDocument, _ip); break;
+                        case "stoptime": stoptime(oXmlDocument,_ip);break;
+                        case "hourtemplate": hourtemp(oXmlDocument, _ip); break;
+                        case "opentime": opentime(oXmlDocument, _ip); break;
+                        case "settime": settime(oXmlDocument,_ip); break;
+                        case "reboot": reboot(oXmlDocument); break;
+                        case "shutdown": shutdown(oXmlDocument); break;
+                        case "sclose": sclose(oXmlDocument); break;
+                        case "finish": finish(oXmlDocument); break;
+                        case "config": config(oXmlDocument); break;
+                        case "logout": cashier_logout(_ip); break;
+                        case "timecode": Timecode(oXmlDocument,_ip); break;
+                        case "password": password(oXmlDocument); break;
+                        case "msg":
+                            Msg(oXmlDocument);
+                            break;
+                        case "group":
+                            Group(oXmlDocument);
+                            break;
+                        case "killnr":
+                            {
+                                Send(oXmlDocument.FirstChild.ChildNodes[1].InnerText, Program.port_servertoclient, "<mastercafe><cmd>killnr</cmd></mastercafe>");
+                            }
+                            break;
+                        case "refresh":
+                            {
+                                cashier_refresh(_ip);
+                            }
+                            break;
+                        case "stockmember":
+                            {
+                                cashier_stockmember(oXmlDocument, _ip);
+                            }
+                            break;
+                        case "login":
+                            {cashier_login(oXmlDocument,_ip);}
+                            break;
+                        case "ack":
+                            {
+                                if(employees.ContainsKey(_ip))
+                                {
+                                    ParamCashier pc=(ParamCashier)employees[_ip];
+                                    pc.c=0;
+                                    employees[_ip] = pc;
+                                }
+                            }
+                            break;
+                        case "syn":
+                            { Send(_ip, Program.port_servertocashier, "<mastercafe><cmd>ack</cmd></mastercafe>"); }
+                            break;
+                        default: break;
+                    }
+                }
+            }
+        }
+        private void hourtemp(XmlDocument xd, string ip)
+        {
+            if (employees.ContainsKey(ip))
+            {
+                using (DataContext_mastercafe dcm = new DataContext_mastercafe(Program.constr))
+                {
+                    ParamCashier pc = (ParamCashier)employees[ip];
+                    string name = xd.FirstChild.ChildNodes[1].InnerText;
+                    client cl = dcm.clients.SingleOrDefault(c => c.name == name);
+                    if (cl.status < 2)
+                    {
+                        string htname = xd.FirstChild.ChildNodes[2].InnerText;
+                        hourtemplate ht = dcm.hourtemplates.SingleOrDefault(h => h.name == htname);
+                        if (DateTime.Now.Hour >= ht.beghour && DateTime.Now.Hour <= ht.endhour)
+                        {
+                            if (cl.status == 1)
+                            {
+                                cl.status = 5;
+                            }
+                            if (cl.status == 0)
+                            {
+                                cl.status = 6;
+                            }
+                            employee_hour eh = new employee_hour();
+                            eh.client_name = cl.name;
+                            eh.employee_id = pc.id;
+                            eh.ot = DateTime.Now;
+                            eh.price = ht.price;
+                            dcm.employee_hours.InsertOnSubmit(eh);
+                            cl.data = "<data>";
+                            cl.data += "<member></member>";
+                            cl.data += "<usedt></usedt>";
+                            cl.data += "<remaint></remaint>";
+                            cl.data += "<money>" + ht.stock + "</money>";
+                            cl.data += "<usedmoney></usedmoney>";
+                            cl.data += "<start></start>";
+                            cl.data += "<endt></endt>";
+                            cl.data += "<app></app>";
+                            cl.data += "<title></title>";
+                            cl.data += "<tc></tc>";
+                            cl.data += "<ht>1</ht>";
+                            cl.data += "</data>";
+                            // client_hour
+                            client_hour ch = new client_hour();
+                            ch.begint = DateTime.Now;
+                            ch.endt = DateTime.Now.AddHours(ht.stock/cl.groups.hourprice);
+                            ch.client_name = cl.name;
+                            ch.stock = ht.stock;
+                            dcm.client_hours.InsertOnSubmit(ch);
+                            //
+                            try { dcm.SubmitChanges(); }
+                            catch { ;}
+                            string msg = "<mastercafe><cmd>settime</cmd>";
+                            msg += "<money>" + ht.stock + "</money>";
+                            msg += "<start>" + DateTime.Now.ToString() + "</start>";
+                            msg += "<hourprice>" + cl.groups.hourprice + "</hourprice>";
+                            msg += "<minprice>" + cl.groups.minprice + "</minprice>";
+                            msg += "<ht>1</ht>";
+                            msg += "</mastercafe>";
+                            Send(cl.ip, Program.port_servertoclient, msg);
+                        }
+                        else
+                        {
+                            string msg = "<mastercafe><cmd>ofailed</cmd><error>Зөвхөн " + ht.beghour + ":00 - " + ht.endhour + ":59 цагийн хооронд боломжтой.</error></mastercafe>";
+                            Send(ip, Program.port_servertocashier, msg);
+                        }
+                    }
+                }
+            }
+        }
+        private void on_connect_employee(string ip)
+        {
+            if (userControl_monitor.label_status.InvokeRequired)
+            {
+                userControl_monitor.Invoke(new MethodInvoker(delegate
+                {
+                    userControl_monitor.label_status.Text = "Холбогдсон клиент: " + clients.Count.ToString() + " Холбогдсон бусад: " + employees.Count.ToString();
+                }));
+            }
+            else
+            {
+                userControl_monitor.label_status.Text = "Холбогдсон клиент: " + clients.Count.ToString() + " Холбогдсон бусад: " + employees.Count.ToString();
+            }
+            notifyIcon.Text = "Холбогдсон клиент: " + clients.Count.ToString() + " Холбогдсон бусад: " + employees.Count.ToString();
+        }
+        private void on_disconnect_employee(string ip)
+        {
+            if (userControl_monitor.label_status.InvokeRequired)
+            {
+                userControl_monitor.Invoke(new MethodInvoker(delegate
+                {
+                    userControl_monitor.label_status.Text = "Холбогдсон клиент: " + clients.Count.ToString() + " Холбогдсон бусад: " + employees.Count.ToString();
+                }));
+            }
+            else
+            {
+                userControl_monitor.label_status.Text = "Холбогдсон клиент: " + clients.Count.ToString() + " Холбогдсон бусад: " + employees.Count.ToString();
+            }
+            notifyIcon.Text = "Холбогдсон клиент: " + clients.Count.ToString() + " Холбогдсон бусад: " + employees.Count.ToString();
+        }
+        private void cashier_logout(string ip)
+        {
+            using (DataContext_mastercafe dcm = new DataContext_mastercafe(Program.constr))
+            {
+                try
+                {
+                    ParamCashier pc = (ParamCashier)employees[ip];
+                    employees.Remove(ip);
+                    on_disconnect_employee(ip);
+                    string msg = "<mastercafe><cmd>logoutok</cmd></mastercafe>";
+                    Send(ip, Program.port_servertocashier, msg);
+                }
+                catch { ;}
+            }
+        }
+        private void cashier_login(XmlDocument xd,string ip)
+        {
+            using (DataContext_mastercafe dcm = new DataContext_mastercafe(Program.constr))
+            {
+                string name = xd.FirstChild.ChildNodes[1].InnerText;
+                string password = xd.FirstChild.ChildNodes[2].InnerText;
+                int cnt = (from e in dcm.employees where e.name == name && e.password == password select e.name).Count();
+                if (cnt == 1)
+                {
+
+                    employee emp = dcm.employees.SingleOrDefault(e => e.name == name && e.password == password);
+
+                        try { dcm.SubmitChanges(); }
+                        catch { ;}
+                        ParamCashier pc = new ParamCashier();
+                        pc.c = 0;
+                        pc.id = emp.name;
+                        employees.Add(ip, pc);
+                        on_connect_employee(ip);
+                        string msg = "<mastercafe><cmd>logged</cmd><type>" + emp.type.ToString() + "</type>";
+                        msg += "<groups>";
+                        var grs = from g in dcm.groups select new { g.id, g.name, g.hourprice, g.hour, g.prepairhour, g.minprice };
+                        foreach (var gr in grs)
+                        {
+                            msg += "<group>";
+                            msg += "<id>" + gr.id + "</id>";
+                            msg += "<name>" + gr.name + "</name>";
+                            msg += "<hourprice>" + gr.hourprice + "</hourprice>";
+                            msg += "<hour>" + gr.hour + "</hour>";
+                            msg += "<prepairhour>" + gr.prepairhour + "</prepairhour>";
+                            msg += "<minprice>" + gr.minprice + "</minprice>";
+                            msg += "</group>";
+                        }
+                        msg += "</groups>";
+                        msg += "<members>";
+                        var mems = from m in dcm.members select new { m.name, m.stock, m.ot };
+                        foreach (var me in mems)
+                        {
+                            msg += "<member>";
+                            msg += "<name>" + me.name + "</name>";
+                            msg += "<stock>" + me.stock + "</stock>";
+                            msg += "<ot>" + me.ot + "</ot>";
+                            msg += "</member>";
+                        }
+                        msg += "</members>";
+                        msg += "<hourtemplates>";
+
+                        var hts = from h in dcm.hourtemplates select new { h.id, h.name };
+                        foreach (var ht in hts)
+                        {
+                            msg += "<hourtemplate>";
+                            msg += "<id>" + ht.id + "</id>";
+                            msg += "<name>" + ht.name + "</name>";
+                            msg += "</hourtemplate>";
+                        }
+                        var cashiers = from c in dcm.employees select new { c.id, c.name };
+                        msg += "</hourtemplates>";
+                        msg += "<cashiers>";
+                        foreach(var c in cashiers)
+                        {
+                            msg += "<cashier>";
+                            msg += "<id>" + c.id +"</id>";
+                            msg += "<name>"+c.name+"</name>";
+                            msg += "</cashier>";
+                        }
+                        msg += "</cashiers>";
+                        msg += "</mastercafe>";
+                        Send(ip, Program.port_servertocashier, msg);
+
+                }
+                else
+                {
+                    string msg = "<mastercafe><cmd>refuse</cmd><error>Та нэвтрэх эрхгүй.</error></mastercafe>";
+                    Send(ip, Program.port_servertocashier, msg);
+                }
+            }
+        }
+        private void cashier_refresh(string ip)
+        {
+            using (DataContext_mastercafe dcm = new DataContext_mastercafe(Program.constr))
+            {
+                string msg = "<mastercafe><cmd>reload</cmd>";
+                msg += "<members>";
+                var mems = from m in dcm.members select new { m.name, m.stock, m.ot };
+                foreach (var me in mems)
+                {
+                    msg += "<member>";
+                    msg += "<name>" + me.name + "</name>";
+                    var cl3 = from c in dcm.clients where c.status == 3 select new { c.name, c.data };
+                    int stock = me.stock;
+                    foreach (var cl in cl3)
+                    {
+                        XmlDocument _xd = new XmlDocument();
+                        _xd.LoadXml(cl.data);
+                        if (_xd.FirstChild.ChildNodes[0].InnerText.ToLower() == me.name.ToLower())
+                        {
+                            stock = int.Parse(_xd.FirstChild.ChildNodes[3].InnerText);
+                            break;
+                        }
+                    }
+                    msg += "<stock>" + stock+ "</stock>";
+                    msg += "<ot>" + me.ot + "</ot>";
+                    msg += "</member>";
+                }
+                msg += "</members>";
+                msg += "</mastercafe>";
+                Send(ip, Program.port_servertocashier, msg);
+            }
+        }
+        private void client_current(XmlDocument xd, string ip)
+        {
+            try
+            {
+                using (DataContext_mastercafe dcm = new DataContext_mastercafe(Program.constr))
+                {
+                    client cl = dcm.clients.Single(c => c.ip == ip);
+                    cl.data = xd.FirstChild.ChildNodes[1].OuterXml;
+                    try { dcm.SubmitChanges(); }
+                    catch { ;}
+                }
+            }
+            catch { ;}
+        }
+        private void client_memberlogin(XmlDocument xd,string ip)
+        {
+            while (mlogin > 0)
+            {
+                Thread.Sleep(100);
+            }
+            mlogin = mlogin + 1;
+            using (DataContext_mastercafe dcm = new DataContext_mastercafe(Program.constr))
+            {
+                string name = xd.FirstChild.ChildNodes[1].InnerText.ToLower();
+                name=name.Replace(" ", "");
+                string password = xd.FirstChild.ChildNodes[2].InnerText.ToLower();
+                var ml = from m in dcm.members where m.name.ToLower() == name && m.password.ToLower() == password select new { m.name };
+                int mlcnt = ml.Count();
+                if (mlcnt == 1)
+                {
+                    var cl3 = from c in dcm.clients where c.status == 3 select new { c.name, c.data };
+                    bool exist = false;
+                    string cname = "";
+                    foreach (var cl in cl3)
+                    {
+                        XmlDocument _xd = new XmlDocument();
+                        _xd.LoadXml(cl.data);
+                        if (_xd.FirstChild.ChildNodes[0].InnerText.ToLower() == name.ToLower())
+                        {
+                            cname = cl.name;
+                            exist = true;
+                            break;
+                        }
+                    }
+                    if (exist)
+                    {
+                        string msg = "<mastercafe><cmd>mlfailed</cmd><msg>" + cname + "- нэвтэрсэн байна.</msg></mastercafe>";
+                        Send(ip, Program.port_servertoclient, msg);
+                    }
+                    else
+                    {
+                        client c = dcm.clients.SingleOrDefault(cli => cli.ip == ip);
+                        member m = dcm.members.SingleOrDefault(me => me.name == name);
+                        if (m.stock > c.groups.minprice)
+                        {
+                            if (c.groups.member == true)
+                            {
+                                c.status = 3;
+                                c.data = "<data>";
+                                c.data += "<member>" + m.name + "</member>";
+                                c.data += "<usedt></usedt>";
+                                c.data += "<remaint></remaint>";
+                                c.data += "<money>" + m.stock + "</money>";
+                                c.data += "<usedmoney></usedmoney>";
+                                c.data += "<start></start>";
+                                c.data += "<endt></endt>";
+                                c.data += "<app></app>";
+                                c.data += "<title></title>";
+                                c.data += "<tc></tc>";
+                                c.data += "<ht></ht>";
+                                c.data += "</data>";
+                                try { dcm.SubmitChanges(); }
+                                catch { ;}
+                                string msg = "<mastercafe><cmd>mlok</cmd>";
+                                msg += "<name>" + name + "</name>";
+                                msg += "<money>" + m.stock + "</money>";
+                                msg += "<now>" + DateTime.Now.ToString() + "</now>";
+                                msg += "<memberprice>" + c.groups.memberprice + "</memberprice>";
+                                msg += "<minprice>" + c.groups.minprice + "</minprice>";
+                                msg += "</mastercafe>";
+                                Send(ip, Program.port_servertoclient, msg);
+                            }
+                            else
+                            {
+                                string msg = "<mastercafe><cmd>mlfailed</cmd><msg>Хэрэглэгчийн эрхээр нэвтрэх боломжгүй компьютер.</msg></mastercafe>";
+                                Send(ip, Program.port_servertoclient, msg);
+                            }
+                        }
+                        else
+                        {
+                            string msg = "<mastercafe><cmd>mlfailed</cmd><msg>Таны цаг дууссан байна.</msg></mastercafe>";
+                            Send(ip, Program.port_servertoclient, msg);
+                        }
+                    }
+                }
+                else
+                {
+                    string msg = "<mastercafe><cmd>mlfailed</cmd><msg>Та нэвтрэх эрхгүй.</msg></mastercafe>";
+                    Send(ip, Program.port_servertoclient, msg);
+                }
+            }
+            mlogin = mlogin - 1;
+        }
+        private void client_timecodelogin(XmlDocument xd, string ip)
+        {
+            while (tlogin > 0)
+            {
+                Thread.Sleep(100);
+            }
+            tlogin = tlogin + 1;
+            using (DataContext_mastercafe dcm = new DataContext_mastercafe(Program.constr))
+            {
+                string time_code = xd.FirstChild.ChildNodes[1].InnerText;
+                time_code = time_code.Replace(" ", "");
+                var tl = from t in dcm.timecodes where t.code == time_code select new { t.code };
+                int tlcnt = tl.Count();
+                if (tlcnt == 1)
+                {
+                    var cl3 = from c in dcm.clients where c.status == 4 select new { c.name, c.data };
+                    bool exist = false;
+                    string cname = "";
+                    foreach (var cl in cl3)
+                    {
+                        XmlDocument _xd = new XmlDocument();
+                        _xd.LoadXml(cl.data);
+                        if (_xd.FirstChild.ChildNodes[9].InnerText.ToLower() == time_code.ToLower())
+                        {
+                            cname = cl.name;
+                            exist = true;
+                            break;
+                        }
+                    }
+                    if (exist)
+                    {
+                        string msg = "<mastercafe><cmd>tlfailed</cmd><msg>" + cname + "- нэвтэрсэн байна.</msg></mastercafe>";
+                        Send(ip, Program.port_servertoclient, msg);
+                        
+                    }
+                    else
+                    {
+                        client c = dcm.clients.SingleOrDefault(cli => cli.ip == ip);
+                        timecode tc = dcm.timecodes.SingleOrDefault(t => t.code == time_code);
+                        if (tc.stock > c.groups.minprice)
+                        {
+                            if (c.groups.timecode == true)
+                            {
+                                c.status = 4;
+                                c.data = "<data>";
+                                c.data += "<member></member>";
+                                c.data += "<usedt></usedt>";
+                                c.data += "<remaint></remaint>";
+                                c.data += "<money>" + tc.stock + "</money>";
+                                c.data += "<usedmoney></usedmoney>";
+                                c.data += "<start></start>";
+                                c.data += "<endt></endt>";
+                                c.data += "<app></app>";
+                                c.data += "<title></title>";
+                                c.data += "<tc>" + tc.code + "</tc>";
+                                c.data += "<ht></ht>";
+                                c.data += "</data>";
+                                try { dcm.SubmitChanges(); }
+                                catch { ;}
+                                string msg = "<mastercafe><cmd>tlok</cmd>";
+                                msg += "<tc>" + tc.code + "</tc>";
+                                msg += "<money>" + tc.stock + "</money>";
+                                msg += "<now>" + DateTime.Now.ToString() + "</now>";
+                                msg += "<memberprice>" + c.groups.timecodeprice + "</memberprice>";
+                                msg += "<minprice>" + c.groups.minprice + "</minprice>";
+                                msg += "</mastercafe>";
+                                Send(ip, Program.port_servertoclient, msg);
+                            }
+                            else
+                            {
+                                string msg = "<mastercafe><cmd>tlfailed</cmd><msg>Цагны кодоор нэвтрэх боломжгүй компьютер.</msg></mastercafe>";
+                                Send(ip, Program.port_servertoclient, msg);
+                            }
+                        }
+                        else
+                        {
+                            string msg = "<mastercafe><cmd>tlfailed</cmd><msg>Таны цаг дууссан байна.</msg></mastercafe>";
+                            Send(ip, Program.port_servertoclient,msg);
+                        }
+
+                    }
+                }
+                else
+                {
+                    string msg = "<mastercafe><cmd>tlfailed</cmd><msg>Та нэвтрэх эрхгүй.</msg></mastercafe>";
+                    Send(ip, Program.port_servertoclient, msg);
+                }
+            }
+            tlogin = tlogin - 1;
+        }
+        private void client_logout(string ip)
+        {
+            using (DataContext_mastercafe dcm = new DataContext_mastercafe(Program.constr))
+            {
+                try
+                {
+                    client cl = dcm.clients.SingleOrDefault(c => c.ip == ip);
+                    if (cl.status == 2)
+                    {
+                        cl.status = 1;
+                        cl.data = "<data>";
+                        cl.data += "<member></member>";
+                        cl.data += "<usedt></usedt>";
+                        cl.data += "<remaint></remaint>";
+                        cl.data += "<money></money>";
+                        cl.data += "<usedmoney></usedmoney>";
+                        cl.data += "<start></start>";
+                        cl.data += "<endt></endt>";
+                        cl.data += "<app></app>";
+                        cl.data += "<title></title>";
+                        cl.data += "<tc></tc>";
+                        cl.data += "<ht></ht>";
+                        cl.data += "</data>";
+                        try { dcm.SubmitChanges(); }
+                        catch { ;}
+                    }
+                    if (cl.status == 3)
+                    {
+                        cl.status = 1;
+                        XmlDocument xd = new XmlDocument();
+                        xd.LoadXml(cl.data);
+                        try
+                        {
+                            
+                            client_member cm = new client_member();
+                            cm.begint = DateTime.Parse(xd.FirstChild.ChildNodes[5].InnerText);
+                            cm.endt = DateTime.Now;
+                            cm.member_name = xd.FirstChild.ChildNodes[0].InnerText;
+                            cm.stock = int.Parse(xd.FirstChild.ChildNodes[4].InnerText);
+                            cm.client_name = cl.name;
+                            dcm.client_members.InsertOnSubmit(cm);
+                            
+                        }
+                        catch
+                        {
+                            ;
+                        }
+                        try
+                        {
+                            member m = dcm.members.SingleOrDefault(me => me.name == xd.FirstChild.ChildNodes[0].InnerText);
+                            m.stock = int.Parse(xd.FirstChild.ChildNodes[3].InnerText);
+                            if (m.stock < 1)
+                            {
+                                m.stock = 0;
+                            }
+                        }
+                        catch
+                        { ;}
+                        cl.data = "<data>";
+                        cl.data += "<member></member>";
+                        cl.data += "<usedt></usedt>";
+                        cl.data += "<remaint></remaint>";
+                        cl.data += "<money></money>";
+                        cl.data += "<usedmoney></usedmoney>";
+                        cl.data += "<start></start>";
+                        cl.data += "<endt></endt>";
+                        cl.data += "<app></app>";
+                        cl.data += "<title></title>";
+                        cl.data += "<tc></tc>";
+                        cl.data += "<ht></ht>";
+                        cl.data += "</data>";
+                        try { dcm.SubmitChanges(); }
+                        catch { ;}
+                    }
+                    if (cl.status == 4)
+                    {
+                        cl.status = 1;
+                        XmlDocument xd = new XmlDocument();
+                        xd.LoadXml(cl.data);
+                        try
+                        {
+                            client_timecode ct = new client_timecode();
+                            ct.begint = DateTime.Parse(xd.FirstChild.ChildNodes[5].InnerText);
+                            ct.endt = DateTime.Now;
+                            ct.timecode_code = xd.FirstChild.ChildNodes[9].InnerText;
+                            ct.stock = int.Parse(xd.FirstChild.ChildNodes[4].InnerText);
+                            ct.client_name = cl.name;
+                            dcm.client_timecodes.InsertOnSubmit(ct);
+                        }
+                        catch
+                        { ;}
+                        try
+                        {
+                            timecode tc = dcm.timecodes.SingleOrDefault(t => t.code == xd.FirstChild.ChildNodes[9].InnerText);
+                            tc.stock = int.Parse(xd.FirstChild.ChildNodes[3].InnerText);
+                            if (tc.stock < 1)
+                            {
+                                tc.stock = 0;
+                            }
+                        }
+                        catch { ;}
+                        cl.data = "<data>";
+                        cl.data += "<member></member>";
+                        cl.data += "<usedt></usedt>";
+                        cl.data += "<remaint></remaint>";
+                        cl.data += "<money></money>";
+                        cl.data += "<usedmoney></usedmoney>";
+                        cl.data += "<start></start>";
+                        cl.data += "<endt></endt>";
+                        cl.data += "<app></app>";
+                        cl.data += "<title></title>";
+                        cl.data += "<tc></tc>";
+                        cl.data += "<ht></ht>";
+                        cl.data += "</data>";
+                        try { dcm.SubmitChanges(); }
+                        catch { ;}
+                    }
+                    if (cl.status == 5)
+                    {
+                        cl.status = 1;
+                        try
+                        {
+                            XmlDocument xd = new XmlDocument();
+                            xd.LoadXml(cl.data);
+                            client_hour ch = new client_hour();
+                            ch.begint = DateTime.Parse(xd.FirstChild.ChildNodes[5].InnerText);
+                            ch.endt = DateTime.Parse(xd.FirstChild.ChildNodes[6].InnerText);
+                            ch.client_name = cl.name;
+                            ch.stock = int.Parse(xd.FirstChild.ChildNodes[4].InnerText);
+                            dcm.client_hours.InsertOnSubmit(ch);
+                        }
+                        catch { ;}
+                        
+                        cl.data = "<data>";
+                        cl.data += "<member></member>";
+                        cl.data += "<usedt></usedt>";
+                        cl.data += "<remaint></remaint>";
+                        cl.data += "<money></money>";
+                        cl.data += "<usedmoney></usedmoney>";
+                        cl.data += "<start></start>";
+                        cl.data += "<endt></endt>";
+                        cl.data += "<app></app>";
+                        cl.data += "<title></title>";
+                        cl.data += "<tc></tc>";
+                        cl.data += "<ht></ht>";
+                        cl.data += "</data>";
+                        try { dcm.SubmitChanges(); }
+                        catch { ;}
+                    }
+                    if (cl.status == 7)
+                    {
+                        cl.status = 1;
+                        try
+                        {
+                            XmlDocument xd = new XmlDocument();
+                            xd.LoadXml(cl.data);
+                            client_hour ch = new client_hour();
+                            ch.begint = DateTime.Parse(xd.FirstChild.ChildNodes[5].InnerText);
+                            ch.endt = DateTime.Parse(xd.FirstChild.ChildNodes[6].InnerText);
+                            ch.client_name = cl.name;
+                            ch.stock = int.Parse(xd.FirstChild.ChildNodes[4].InnerText);
+                            dcm.client_hours.InsertOnSubmit(ch);
+                        }
+                        catch { ;}
+                        
+                        cl.data = "<data>";
+                        cl.data += "<member></member>";
+                        cl.data += "<usedt></usedt>";
+                        cl.data += "<remaint></remaint>";
+                        cl.data += "<money></money>";
+                        cl.data += "<usedmoney></usedmoney>";
+                        cl.data += "<start></start>";
+                        cl.data += "<endt></endt>";
+                        cl.data += "<app></app>";
+                        cl.data += "<title></title>";
+                        cl.data += "<tc></tc>";
+                        cl.data += "<ht></htprice>";
+                        cl.data += "</data>";
+                        try { dcm.SubmitChanges(); }
+                        catch { ;}
+                    }
+                    Send(ip, Program.port_servertoclient, "<mastercafe><cmd>logoutok</cmd></mastercafe>");
+                }
+                catch { ;}
+            }
+        }
+        private void cp(XmlDocument xd)
+        {
+            using (DataContext_mastercafe dcm = new DataContext_mastercafe(Program.constr))
+            {
+                string name = xd.FirstChild.ChildNodes[1].InnerText.ToLower();
+                string _new = xd.FirstChild.ChildNodes[2].InnerText.ToLower();
+                string _old = xd.FirstChild.ChildNodes[3].InnerText.ToLower(); ;
+                member m = dcm.members.SingleOrDefault(me => me.name.ToLower() == name);
+                if (m.password.ToLower() == _old)
+                {
+                    m.password = _new;
+                    try { dcm.SubmitChanges(); }
+                    catch { ;}
+                }
+            }
+        }
+        private void managment_clients(string ip,string msg)
+        {
+            if (msg.Length==0)
+            {
+                return;
+            }
+            string _ip = ip.Substring(0, ip.IndexOf(":"));
+            XmlDocument oXmlDocument = null;
+            try
+            {
+                oXmlDocument = new XmlDocument();
+                oXmlDocument.LoadXml(msg);
+            }
+            catch { return; }
+           
+            if (oXmlDocument.ChildNodes.Count > 0 && oXmlDocument.ChildNodes[0].Name == "mastercafe")
+            {
+                if (oXmlDocument.ChildNodes[0].ChildNodes.Count > 0 && oXmlDocument.ChildNodes[0].ChildNodes[0].Name == "cmd")
+                {
+                    switch (oXmlDocument.ChildNodes[0].ChildNodes[0].InnerText)
+                    {
+                        case "cp": cp(oXmlDocument); break;
+                        case "logout":
+                            {
+                                client_logout(_ip);
+                            }
+                            break;
+                        case "memberlogin":
+                            {
+                                client_memberlogin(oXmlDocument, _ip);
+                            }
+                            break;
+                        case "timecodelogin":
+                            {
+                                client_timecodelogin(oXmlDocument, _ip);
+                            }
+                            break;
+                        case "current":
+                            {
+                                client_current(oXmlDocument, _ip);
+                            }
+                            break;
+                        case "ack":
+                            {
+                                if (clients.ContainsKey(_ip))
+                                {
+                                    clients[_ip] = 0;
+                                }
+                            }
+                            break;
+                        case "sendinitinfo":
+                            { client_sendinitinfo(_ip, oXmlDocument); } 
+                            break;
+                        case "syn": 
+                            {
+                            Send(_ip, Program.port_servertoclient, "<mastercafe><cmd>ack</cmd></mastercafe>"); }
+                            break;
+                        case "admin":
+                            {
+                                using (DataContext_mastercafe dcm = new DataContext_mastercafe(Program.constr))
+                                {
+                                    client cl = dcm.clients.Single(c => c.ip == _ip);
+                                    cl.status = 2;
+                                    try { dcm.SubmitChanges(); }
+                                    catch { ;}
+
+                                    Send(_ip, Program.port_servertoclient, "<mastercafe><cmd>adminok</cmd></mastercafe>");
+                                }
+                            }
+                            break;
+                        default: break;
+                    }
+                }
+            }
+        }
+        private void client_sendinitinfo(string ip, XmlDocument xd)
+        {
+            using (DataContext_mastercafe dcm = new DataContext_mastercafe(Program.constr))
+            {
+                string name = xd.FirstChild.ChildNodes[1].InnerText;
+                string mac = xd.FirstChild.ChildNodes[2].InnerText;
+                int cntname = (from c in dcm.clients where c.name == name||c.ip==ip select c.name).Count();
+                if (cntname > 1)
+                {
+                    Send(ip, Program.port_servertoclient, "<mastercafe><cmd>refuse</cmd></mastercafe>");
+                    return;
+                }
+                if (cntname == 1)
+                {
+                    client cl = dcm.clients.Single(c => c.name == name);
+                    if (cl.mac != mac)
+                    {
+                        cl.mac = mac;
+                    }
+
+                    if (cl.ip != ip)
+                    {
+                        cl.ip = ip;
+                    }
+                    try { dcm.SubmitChanges(); }
+                    catch { ;}
+                    if (clients.ContainsKey(ip) == false)
+                    {
+                        clients.Add(cl.ip, 0);
+                    }
+                    else
+                    {
+                        clients[cl.ip] = 0;
+                    }
+                    on_connect_client(cl.ip);
+                    Send(ip, Program.port_servertoclient, "<mastercafe><cmd>accept</cmd></mastercafe>");
+                }
+                else
+                {
+                    int maxid = 0;
+                    try
+                    {
+                        var max_group_id = from g in dcm.groups select g.id;
+                        maxid = (int)max_group_id.Max();
+                    }catch{
+                        maxid=1;
+                    }
+                    try
+                    {
+                       
+                        client cl = new client();
+                        cl.group_id = maxid;
+                        cl.name = name;
+                        cl.mac = mac;
+                        cl.status = 1;
+                        cl.ip = ip;
+                        cl.data = "<data>";
+                        cl.data += "<member></member>";
+                        cl.data += "<usedt></usedt>";
+                        cl.data += "<remaint></remaint>";
+                        cl.data += "<money></money>";
+                        cl.data += "<usedmoney></usedmoney>";
+                        cl.data += "<start></start>";
+                        cl.data += "<endt></endt>";
+                        cl.data += "<app></app>";
+                        cl.data += "<title></title>";
+                        cl.data += "<tc></tc>";
+                        cl.data += "<ht></ht>";
+                        cl.data += "</data>";
+                        dcm.clients.InsertOnSubmit(cl);
+                        try { dcm.SubmitChanges(); }
+                        catch { ;}
+                        clients.Add(cl.ip, 0);
+                        on_connect_client(cl.ip);
+                        Send(ip, Program.port_servertoclient, Compress("<mastercafe><cmd>accept</cmd></mastercafe>"));
+                    }
+                    catch
+                    {
+                        Send(ip, Program.port_servertoclient, "<mastercafe><cmd>refuse</cmd></mastercafe>");
+                    }
+                }
+            }
+        }
+        private void Send(string clientip, int port, string message)
+        {
+            string[] param = new string[3];
+            param[0] = clientip;
+            param[1] = port.ToString();
+            param[2] = message;
+            Task.Factory.StartNew(() => _Send(param));
+        }
+        private void _Send(object obj)
+        {
+            string[] param = (string[])obj;
+            string ip = param[0];
+            int port = Convert.ToInt32(param[1]);
+            string data = param[2];
+            string id = Guid.NewGuid().ToString();
+            data = Compress(data);
+            int cnt = data.Length / 10000;
+            while (10000 * cnt < data.Length)
+            {
+                cnt = cnt + 1;
+            }
+            string[] packets = new string[cnt];
+            for (int i = 0; i < cnt; i++)
+            {
+                int step = 10000;
+                if (i + 1 == cnt)
+                {
+                    step = data.Length - i * step;
+                }
+                packets[i] = data.Substring(i * 10000, step);
+                byte[] message = System.Text.Encoding.UTF8.GetBytes("<rc><id>" + id + "</id><part>" + i + "</part><count>" + cnt + "</count><data>" + packets[i] + "</data></rc>");
+                try
+                {
+                    UdpClient sock = new UdpClient(ip, port);
+                    sock.Send(message, message.Length);
+                    sock.Close();
+                    Thread.Sleep(50);
+                }
+                catch (Exception ex)
+                {
+
+                }
+            }
+        }
+        
+        private string urlenc(string inp)
+        {
+            return (System.Web.HttpUtility.UrlEncode(inp));
+        }
+        private string urldec(string inp)
+        {
+            return (System.Web.HttpUtility.UrlDecode(inp));
+        }
+
+        private void ci()
+        {
+            try
+            {
+                using (DataContext_mastercafe dcm = new DataContext_mastercafe(Program.constr))
+                {
+                    var clients = from c in dcm.clients select new { c.name };
+                    string[] emps = new string[employees.Count];
+                    employees.Keys.CopyTo(emps, 0);
+                    var cnt = 0;
+                    string msg = "";
+                    foreach (var c in clients)
+                    {
+                        cnt++;
+                        msg += "<client>";
+                        client cl = dcm.clients.SingleOrDefault(cli => cli.name == c.name);
+                        XmlDocument xd = new XmlDocument();
+                        xd.LoadXml(cl.data);
+                        msg += "<status>" + cl.status + "</status>";
+                        msg += "<name>" + cl.name + "</name>";
+                        msg += "<group>" + cl.groups.name + "</group>";
+                        msg += "<member>" + xd.FirstChild.ChildNodes[0].InnerText + "</member>";
+                        msg += "<usedt>" + xd.FirstChild.ChildNodes[1].InnerText + "</usedt>";
+                        msg += "<remaint>" + xd.FirstChild.ChildNodes[2].InnerText + "</remaint>";
+                        msg += "<money>" + xd.FirstChild.ChildNodes[3].InnerText + "</money>";
+                        msg += "<moneyused>" + xd.FirstChild.ChildNodes[4].InnerText + "</moneyused>";
+                        msg += "<startt>" + xd.FirstChild.ChildNodes[5].InnerText + "</startt>";
+                        msg += "<endt>" + xd.FirstChild.ChildNodes[6].InnerText + "</endt>";
+                        msg += "<app>" + xd.FirstChild.ChildNodes[7].InnerText + "</app>";
+                        msg += "<title>" + xd.FirstChild.ChildNodes[8].InnerText + "</title>";
+                        msg += "<ip>" + cl.ip + "</ip>";
+                        msg += "<mac>" + cl.mac + "</mac>";
+                        msg += "</client>";                    
+                    }
+                    for (int i = 0; i < emps.Length; i++)
+                    {
+                        msg = "<mastercafe><cmd>clientinfo</cmd><clients>" + msg + "</clients></mastercafe>";
+                        Send(emps[i], Program.port_servertocashier, msg);
+                    }
+                }
+            }
+            catch { ;}
+        }
+
+        private void timer_clientsinfo_Tick(object sender, EventArgs e)
+        {
+            ci();
+        }
+        private void contextMenuStrip_Opening(object sender, CancelEventArgs e)
+        {
+
+        }
+        private void Serverfrm_Load(object sender, EventArgs e)
+        {
+
+        }
+        private void notifyIcon_DoubleClick(object sender, EventArgs e)
+        {
+            if (this.WindowState==FormWindowState.Minimized)
+            {
+                this.WindowState = FormWindowState.Normal;
+                this.ShowInTaskbar = true;
+                this.FormBorderStyle = System.Windows.Forms.FormBorderStyle.Sizable;
+                System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(Serverfrm));
+                this.Icon = ((System.Drawing.Icon)(resources.GetObject("$this.Icon")));
+                this.ShowIcon = true;
+            }
+            else
+            {
+                this.WindowState = FormWindowState.Minimized;
+                this.ShowInTaskbar = false;
+                this.FormBorderStyle = System.Windows.Forms.FormBorderStyle.None;
+            }
+        }
+		
+		private void on_connect_client(string ip)
+        {
+            using (DataContext_mastercafe dcm = new DataContext_mastercafe(Program.constr))
+            {
+                try
+                {
+                    if (userControl_monitor.label_status.InvokeRequired)
+                    {
+                        userControl_monitor.Invoke(new MethodInvoker(delegate
+                            {
+                                userControl_monitor.label_status.Text = "Холбогдсон компьютер: " + clients.Count.ToString() + " Холбогдсон хянагч: " + employees.Count.ToString();
+                            }));
+                    }
+                    else
+                    {
+                        userControl_monitor.label_status.Text = "Холбогдсон компьютер: " + clients.Count.ToString() + " Холбогдсон хянагч: " + employees.Count.ToString();
+                    }
+                    notifyIcon.Text = "Холбогдсон компьютер: " + clients.Count.ToString() + " Холбогдсон хянагч: " + employees.Count.ToString();
+                    client cl = dcm.clients.SingleOrDefault(c => c.ip == ip);
+                    if (cl.status == 0)
+                    {
+                        cl.status = 1;
+                    }
+                    if (cl.status == 6)
+                    {
+                        cl.status = 5;
+                        XmlDocument xd = new XmlDocument();
+                        xd.LoadXml(cl.data);
+                        int money = int.Parse(xd.FirstChild.ChildNodes[3].InnerText);
+                        string _msg = "<mastercafe><cmd>settime</cmd>";
+                        _msg += "<money>" + money + "</money>";
+                        _msg += "<start>" + DateTime.Now.ToString() + "</start>";
+                        _msg += "<hourprice>" + cl.groups.hourprice + "</hourprice>";
+                        _msg += "<minprice>" + cl.groups.minprice + "</minprice>";
+                        _msg += "<ht>" + xd.FirstChild.ChildNodes[10].InnerText + "</ht>";
+                        _msg += "</mastercafe>";
+                        Send(cl.ip, Program.port_servertoclient, _msg);
+                    }
+                    if (cl.status == 8)
+                    {
+                        cl.status = 7;
+                        XmlDocument xd = new XmlDocument();
+                        xd.LoadXml(cl.data);
+                        int usedmoney = int.Parse(xd.FirstChild.ChildNodes[4].InnerText);
+                        string _msg = "<mastercafe><cmd>opentime</cmd>";
+                        _msg += "<usedmoney>" + usedmoney + "</usedmoney>";
+                        _msg += "<start>" + DateTime.Now.ToString() + "</start>";
+                        _msg += "<hourprice>" + cl.groups.hourprice + "</hourprice>";
+                        _msg += "<minprice>" + cl.groups.minprice + "</minprice>";
+                        _msg += "</mastercafe>";
+                        Send(cl.ip, Program.port_servertoclient, _msg);
+                    }
+                    try { dcm.SubmitChanges(); }
+                    catch { ;}
+                    var data = from b in dcm.bans select new { b.word };
+                    string msg = "<mastercafe><cmd>ban</cmd>";
+                    msg += "<bans>";
+                    foreach (var dt in data)
+                    {
+                        msg += "<ban>" + urlenc(dt.word) + "</ban>";
+                    }
+                    msg += "</bans>";
+                    msg += "</mastercafe>";
+                    Send(ip, Program.port_servertoclient, msg);
+                }
+                catch { Send(ip, Program.port_servertoclient, "<mastercafe><cmd>refuse</cmd></mastercafe>");}
+            }
+        }
+        private void on_disconnect_client(string ip)
+        {
+            using (DataContext_mastercafe dcm = new DataContext_mastercafe(Program.constr))
+            {
+                if (userControl_monitor.label_status.InvokeRequired)
+                {
+                    userControl_monitor.Invoke(new MethodInvoker(delegate
+                    {
+                        userControl_monitor.label_status.Text = "Холбогдсон клиент: " + clients.Count.ToString() + " Холбогдсон бусад: " + employees.Count.ToString();
+                    }));
+                }
+                else
+                {
+                    userControl_monitor.label_status.Text = "Холбогдсон клиент: " + clients.Count.ToString() + " Холбогдсон бусад: " + employees.Count.ToString();
+                }
+                notifyIcon.Text = "Холбогдсон клиент: " + clients.Count.ToString() + " Холбогдсон бусад: " + employees.Count.ToString();
+                client cl = dcm.clients.Single(c => c.ip == ip);
+                if (cl.status == 0)
+                {
+                    cl.data = "<data>";
+                    cl.data += "<member></member>";
+                    cl.data += "<usedt></usedt>";
+                    cl.data += "<remaint></remaint>";
+                    cl.data += "<money></money>";
+                    cl.data += "<usedmoney></usedmoney>";
+                    cl.data += "<start></start>";
+                    cl.data += "<endt></endt>";
+                    cl.data += "<app></app>";
+                    cl.data += "<title></title>";
+                    cl.data += "<tc></tc>";
+                    cl.data += "<ht></ht>";
+                    cl.data += "</data>";
+                }
+                if (cl.status == 1)
+                {
+                    cl.status = 0;
+                    cl.data = "<data>";
+                    cl.data += "<member></member>";
+                    cl.data += "<usedt></usedt>";
+                    cl.data += "<remaint></remaint>";
+                    cl.data += "<money></money>";
+                    cl.data += "<usedmoney></usedmoney>";
+                    cl.data += "<start></start>";
+                    cl.data += "<endt></endt>";
+                    cl.data += "<app></app>";
+                    cl.data += "<title></title>";
+                    cl.data += "<tc></tc>";
+                    cl.data += "<ht></ht>";
+                    cl.data += "</data>";
+                }
+                if (cl.status == 2)
+                {
+                    cl.status = 0;
+                    cl.data = "<data>";
+                    cl.data += "<member></member>";
+                    cl.data += "<usedt></usedt>";
+                    cl.data += "<remaint></remaint>";
+                    cl.data += "<money></money>";
+                    cl.data += "<usedmoney></usedmoney>";
+                    cl.data += "<start></start>";
+                    cl.data += "<endt></endt>";
+                    cl.data += "<app></app>";
+                    cl.data += "<title></title>";
+                    cl.data += "<tc></tc>";
+                    cl.data += "<ht></ht>";
+                    cl.data += "</data>";
+                }
+                if (cl.status == 3)
+                {
+                    cl.status = 0;
+                    XmlDocument xd = new XmlDocument();
+                    xd.LoadXml(cl.data);
+                    try
+                    {
+                        client_member cm = new client_member();
+                        cm.begint = DateTime.Parse(xd.FirstChild.ChildNodes[5].InnerText);
+                        cm.endt = DateTime.Now;
+                        cm.member_name = xd.FirstChild.ChildNodes[0].InnerText;
+                        cm.stock = int.Parse(xd.FirstChild.ChildNodes[4].InnerText);
+                        if (cm.stock < 1)
+                        {
+                            cm.stock = 0;
+                        }
+                        cm.client_name = cl.name;
+                        dcm.client_members.InsertOnSubmit(cm);
+                        
+                    }
+                    catch
+                    {
+                        ;
+                    }
+                    try
+                    {
+                        member m = dcm.members.SingleOrDefault(me => me.name == xd.FirstChild.ChildNodes[0].InnerText);
+                        m.stock = int.Parse(xd.FirstChild.ChildNodes[3].InnerText);
+                        if (m.stock < 1)
+                        {
+                            m.stock = 0;
+                        }
+                    }
+                    catch { ;}
+                    cl.data = "<data>";
+                    cl.data += "<member></member>";
+                    cl.data += "<usedt></usedt>";
+                    cl.data += "<remaint></remaint>";
+                    cl.data += "<money></money>";
+                    cl.data += "<usedmoney></usedmoney>";
+                    cl.data += "<start></start>";
+                    cl.data += "<endt></endt>";
+                    cl.data += "<app></app>";
+                    cl.data += "<title></title>";
+                    cl.data += "<tc></tc>";
+                    cl.data += "<ht></ht>";
+                    cl.data += "</data>";
+                }
+                if (cl.status == 4)
+                {
+
+                    cl.status = 0;
+                    XmlDocument xd = new XmlDocument();
+                    xd.LoadXml(cl.data);
+                    try
+                    {
+                        
+                        client_timecode ct = new client_timecode();
+                        ct.begint = DateTime.Parse(xd.FirstChild.ChildNodes[5].InnerText);
+                        ct.endt = DateTime.Now;
+                        ct.timecode_code = xd.FirstChild.ChildNodes[9].InnerText;
+                        ct.stock = int.Parse(xd.FirstChild.ChildNodes[4].InnerText);
+                        ct.client_name = cl.name;
+                        dcm.client_timecodes.InsertOnSubmit(ct);
+                        
+                    }
+                    catch
+                    { ;}
+                    try
+                    {
+                        timecode tc = dcm.timecodes.SingleOrDefault(t => t.code == xd.FirstChild.ChildNodes[9].InnerText);
+                        tc.stock = int.Parse(xd.FirstChild.ChildNodes[3].InnerText);
+                        if (tc.stock < 1)
+                        {
+                            tc.stock = 0;
+                        }
+                    }
+                    catch { ;}
+                    cl.data = "<data>";
+                    cl.data += "<member></member>";
+                    cl.data += "<usedt></usedt>";
+                    cl.data += "<remaint></remaint>";
+                    cl.data += "<money></money>";
+                    cl.data += "<usedmoney></usedmoney>";
+                    cl.data += "<start></start>";
+                    cl.data += "<endt></endt>";
+                    cl.data += "<app></app>";
+                    cl.data += "<title></title>";
+                    cl.data += "<tc></tc>";
+                    cl.data += "<ht></ht>";
+                    cl.data += "</data>";
+                }
+                if (cl.status == 5)
+                {
+                  
+                    try
+                    {
+                        XmlDocument xd = new XmlDocument();
+                        xd.LoadXml(cl.data);
+                        client_hour ch = new client_hour();
+                        ch.begint = DateTime.Parse(xd.FirstChild.ChildNodes[5].InnerText);
+                        ch.endt = DateTime.Parse(xd.FirstChild.ChildNodes[6].InnerText);
+                        ch.client_name = cl.name;
+                        ch.stock = int.Parse(xd.FirstChild.ChildNodes[4].InnerText);
+                        dcm.client_hours.InsertOnSubmit(ch);
+                    }
+                    catch { ;}
+                    cl.status = 6;
+                }
+                if (cl.status == 7)
+                {
+                    cl.status = 8;
+                }
+                try { dcm.SubmitChanges(); }
+                catch { ;}
+            }
+        }
+        public static string Compress(string text)
+        {
+            byte[] buffer = Encoding.UTF8.GetBytes(text);
+            MemoryStream ms = new MemoryStream();
+            using (GZipStream zip = new GZipStream(ms, CompressionMode.Compress, true))
+            {
+                zip.Write(buffer, 0, buffer.Length);
+            }
+
+            ms.Position = 0;
+            MemoryStream outStream = new MemoryStream();
+
+            byte[] compressed = new byte[ms.Length];
+            ms.Read(compressed, 0, compressed.Length);
+
+            byte[] gzBuffer = new byte[compressed.Length + 4];
+            System.Buffer.BlockCopy(compressed, 0, gzBuffer, 4, compressed.Length);
+            System.Buffer.BlockCopy(BitConverter.GetBytes(buffer.Length), 0, gzBuffer, 0, 4);
+            return Convert.ToBase64String(gzBuffer);
+        }
+        public static string Decompress(string compressedText)
+        {
+            byte[] gzBuffer = Convert.FromBase64String(compressedText);
+            using (MemoryStream ms = new MemoryStream())
+            {
+                int msgLength = BitConverter.ToInt32(gzBuffer, 0);
+                ms.Write(gzBuffer, 4, gzBuffer.Length - 4);
+
+                byte[] buffer = new byte[msgLength];
+
+                ms.Position = 0;
+                using (GZipStream zip = new GZipStream(ms, CompressionMode.Decompress))
+                {
+                    zip.Read(buffer, 0, buffer.Length);
+                }
+
+                return Encoding.UTF8.GetString(buffer);
+            }
+        }
+        
+		private void oTimer_connection_clients_Elapsed(object sender, EventArgs e)
+        {
+            using (DataContext_mastercafe dcm = new DataContext_mastercafe(Program.constr))
+            {
+                oTimer_connection_clients.Stop();
+                string[] cls = new string[clients.Count];
+                clients.Keys.CopyTo(cls, 0);
+                string msg = "<mastercafe><cmd>syn</cmd></mastercafe>";
+                for (int i = 0; i < cls.Length; i++)
+                {
+                    int c = int.Parse(clients[cls[i]].ToString());
+                    c++;
+                    if (c > 10)
+                    {
+                        clients.Remove(cls[i]);
+                        on_disconnect_client(cls[i]);
+                        continue;
+                    }
+                    clients[cls[i]] = c;
+                    Send(cls[i], Program.port_servertoclient, msg);
+                }
+                string[] emps = new string[employees.Count];
+                employees.Keys.CopyTo(emps, 0);
+                for (int i = 0; i < emps.Length; i++)
+                {
+                    ParamCashier pc = (ParamCashier)employees[emps[i]];
+                    pc.c++;
+                    if (pc.c > 5)
+                    {
+                        employees.Remove(emps[i]);
+                        on_disconnect_employee(emps[i]);
+                        continue;
+                    }
+                    employees[emps[i]] = pc;
+                    Send(emps[i], Program.port_servertocashier, msg);
+                }
+                oTimer_connection_clients.Start();
+            }
+        }

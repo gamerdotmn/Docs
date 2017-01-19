@@ -1,0 +1,17 @@
+            //DateTime testd = new DateTime(2016, 07, 28, 22, 33, 33);
+            //string tests = testd.ToString("yyyy.MM.dd HH:mm:ss");
+            //DateTime testp = DateTime.ParseExact(tests, "yyyy.MM.dd HH:mm:ss", null);
+			/*
+            using (ProcessModule curModule = Process.GetCurrentProcess().MainModule)
+            {
+                intLLKey = SetWindowsHookEx(WH_KEYBOARD_LL, LowLevelKeyboardProc, GetModuleHandle(curModule.ModuleName), 0);
+            }
+            using (ProcessModule curModule = Process.GetCurrentProcess().MainModule)
+            {
+                UnhookWindowsHookEx(intLLKey);
+            }
+            if (intLLKey.ToInt64() == 0)
+            {
+                throw new Win32Exception();
+            }
+            */
