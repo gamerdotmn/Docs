@@ -1,9 +1,11 @@
-	0 untarsan
+	0 disconnect
     1 idle
     2 admin
     3 account
     4 timecode
-    5 hour
-    6 hour/untarsan
+    5 prepair
+    6 prepair/disconnect
     7 playpay
-    8 playpay/untarsan
+    8 playpay/disconnect
+	9 reserve
+	10 reserve/disconnect
